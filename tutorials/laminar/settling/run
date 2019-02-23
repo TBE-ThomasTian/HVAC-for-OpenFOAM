@@ -1,0 +1,7 @@
+#!/bin/bash
+
+source clean
+
+ideasUnvToFoam cad/mesh.unv
+cp constant/.boundary constant/polyMesh/boundary
+buoyantHumidityPimpleFoam

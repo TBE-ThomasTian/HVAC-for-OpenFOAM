@@ -1,0 +1,61 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  dev                                   |
+|   \\  /    A nd           | Web:      www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      thermo:specificHumidity;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 0 0 0 0 0 0];
+
+internalField   uniform 0.;  // 30 perc. humidity
+
+boundaryField
+{
+    walls 
+    {
+        type            zeroGradient;
+    }
+
+    inletTop 
+    {
+        type            fixedValue;
+        value           uniform 0.0147;  // 50 perc. humidity
+    }
+
+    inletBottom 
+    {
+        type            fixedValue;
+        value           $internalField;
+    }
+
+    outletTop
+    {
+        type            zeroGradient;
+    }
+
+    outletBottom
+    {
+        type            zeroGradient;
+    }
+
+    front
+    {
+        type            empty;
+    }
+
+    back
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //
