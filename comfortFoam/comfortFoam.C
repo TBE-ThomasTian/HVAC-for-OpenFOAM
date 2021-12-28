@@ -32,18 +32,22 @@ Description
     - PMV (Predicted Percentage of Dissatisfied), Range: 0 bis 100% (PMV)
     - PPD (Predicted Mean Vote), Range: -3 (cold) to 3 (hot) (PPD)
     - Air condition effectivity (AE)
-    - Humidity, Range: 0 bis 100%
+    - Humidity, Range: 0 bis 100% (relHum)
     - Average room temperature
     - Turbulent intensity %
+
+    For humidty you need to run the solver: buoyantHumidtiySimpleFoam / buoyantHumidityPimpleFoam
 
 Background
     DIN EN ISO 7730
 
 Autor
     Thomas Tian
+    Tobias Holzmann
+    Manuel Scheu
 
 Version
-    2.1
+    3.0
 
 \*---------------------------------------------------------------------------*/
 
@@ -57,6 +61,7 @@ Version
 
 // * * * * * * * * * * * * * * * * Functions * * * * * * * * * * * * * * * * //
 
+// Calculate the average of the velocity U
 Foam::vector Uaverage
 (
     const fvMesh& mesh_
@@ -75,11 +80,10 @@ Foam::vector Uaverage
     return midU/volume;
 }
 
-
+// Calculate the average fo Temperature T
 Foam::scalar Taverage
 (
-    const fvMesh& mesh_
-)
+    const fvMesh& mesh_)
 {
     const volScalarField& T = mesh_.lookupObject<volScalarField>("T");
     scalar midT(0);
@@ -94,19 +98,15 @@ Foam::scalar Taverage
     return (midT/volume);
 }
 
-
+// If no Radiation flux is found, than calculate the surface temperatur as average Ts
 Foam::scalar radiationTemperature
 (
     const Foam::fvMesh& mesh_,
     const Foam::fvPatchList& Patches_
 )
 {
-    //- Calculate the radiation temperatur Umgebung
-    //  radiation temperatur =
-    //  Sum(mean wall surface temp / sum(patches))
     const volScalarField& T = mesh_.lookupObject<volScalarField>("T");
-    scalar PatchSumTemp(0), area(0);
-    int counter = 0;
+    scalar PatchSumTemp(0), area(0), sumArea(0);
 
     forAll (Patches_, patchI)
     {
@@ -123,14 +123,14 @@ Foam::scalar radiationTemperature
                     (
                         mesh_.magSf().boundaryField()[curPatch]
                       * T.boundaryField()[curPatch]
-                    ) / area;
+                    );
 
-                counter++;
+                sumArea += area;
             }
         }
    }
 
-    return (PatchSumTemp / counter) - 273.15;
+    return (PatchSumTemp / sumArea) - 273.15;
 }
 
 
@@ -165,9 +165,32 @@ int main(int argc, char *argv[])
 
         scalar STemp(20), STempAverage(20);
 
-        if (w.headerOk()==1)
+        if (relHum.headerOk()==1)
         {
             RHswitch = true;
+        }
+
+        bool turbulenceAvailable = false;
+
+        autoPtr<volScalarField> kField;
+
+        if (kHeader.typeHeaderOk<volScalarField>())
+        {
+            Info<< "Turbulence field k available\n";
+            turbulenceAvailable = true;
+
+            kField.reset
+            (
+                new volScalarField
+                (
+                    kHeader,
+                    mesh
+                )
+            );
+        }
+        else
+        {
+            Info<< "No turbulence field k available\n";
         }
 
         volVectorField U(UHeader, mesh);
@@ -180,7 +203,7 @@ int main(int argc, char *argv[])
         scalar HCF(0), HC(0), PA(0), FCL(0), EPS(0), ICL(0);
         scalar Tu(0), HL1(0), HL2(0), HL3(0), HL4(0), HL5(0);
         scalar HL6(0), TCL(0), TS(0), TCLA(0), midPMV(0), midPPD(0);
-        scalar midDR(0), midTO(0), midRH(0), p_w(0), p_ws(0.01);
+        scalar midDR(0), midTO(0), midRH(0), midTu(0);
 
         scalar volume(0);
 
@@ -200,28 +223,26 @@ int main(int argc, char *argv[])
 	   if (T[cellI] > 400)
 		T[cellI] = 400;
 
-//	   if (G.headerOk()!=1)
-  //           STemp = radiationTemperature(mesh, Patches);
-//	   else
 	if (G.headerOk() == 1)
 {
 
         if (G[cellI] < 0)
 	G[cellI] = 0;
 
+        // Because of some bad cells we need to cut values
         if ( G[cellI] > 50000 )
 	G[cellI] = 50000;
 
-	     STemp = Foam::pow( G[cellI] / ( 4.0 * 0.0000000567), 0.25) - 273.15; 
+	     STemp = Foam::pow( G[cellI] / ( 4.0 * 0.0000000567), 0.25) - 273.15;
 
 }
-
-
+            // No Humidty found? Than calculate it internal
             if (RHswitch)
             {
+/*
                 //- Calculate die Raumluftfeuchte
                 p_w = ((101325 + p_rgh[cellI])
-                    * w[cellI])/(0.62198 + 0.37802 * w[cellI]);
+                    * relHum[cellI])/(0.62198 + 0.37802 * relHum[cellI]);
 
                 p_ws = Foam::exp(-0.58002206*Foam::pow(10.0,4)
                     * Foam::pow(T[cellI],-1)
@@ -230,14 +251,17 @@ int main(int argc, char *argv[])
                     + 0.41764768*Foam::pow(10.0,-4)*Foam::pow(T[cellI],2)
                     - 0.14452093*Foam::pow(10.0,-7)*Foam::pow(T[cellI],3)
                     + 0.65459673*10*Foam::log(T[cellI]));
+*/
 
-                RH[cellI] = p_w/p_ws*100;
+                RH[cellI] = relHum[cellI] * 100; // p_w/p_ws*100;
+
 
                 PA = RH[cellI] * 10
                     //- water vapour pressure, Pa
                     * Foam::exp(16.6563-(4030.183/(T[cellI]-273.15+235)));
 
                 midRH += RH[cellI] * mesh.V()[cellI];
+
             }
             else
             {
@@ -248,15 +272,20 @@ int main(int argc, char *argv[])
             }
 
             //- Calculate turbulent intensity %
-            //  Tu = sqrt ( 1/3 * (Ux'² + Uy'² + Uz'²
-            if (mag(wl) >0)
+            //  updated by Tobi August 2021
+            if (mag(U[cellI]) >0)
             {
-                Tu = Foam::sqrt(scalar(1)/scalar(3)
-                    *(
-                        Foam::pow(U[cellI].x(),2) +
-                        Foam::pow(U[cellI].y(),2) +
-                        Foam::pow(U[cellI].z(),2)
-                     )) * 100;
+                // Only if turbulence model is available - otherwise the value
+                // of Tu = 0
+                if (turbulenceAvailable)
+                {
+                    // In percent
+                    Tu = Foam::sqrt(2./3.*kField()[cellI])/mag(U[cellI]);
+                }
+                else
+                {
+                    Tu = 0;
+                }
             }
             else
             {
@@ -264,7 +293,6 @@ int main(int argc, char *argv[])
             }
 
             //- Calculate DR-value
-            //  if wl<0,05 m/s use wl=0,05 m/s!
             if (mag(U[cellI]) >= 0.05)
             {
                 DR[cellI] =
@@ -272,12 +300,10 @@ int main(int argc, char *argv[])
                   * (Foam::pow(mag(U[cellI])-0.05,0.62)
                   * ((0.37*mag(U[cellI])*Tu)+3.14));
             }
+            // If U < 0.05 the DR equals to zero
             else
             {
-                DR[cellI] =
-                    (34-T[cellI]-273.15)
-                  * Foam::pow(0.05,0.6223)
-                  * ((0.37*0.05*Tu)+3.14);
+                DR[cellI] = 0;
             }
 
             if (DR[cellI] > 100)
@@ -424,7 +450,8 @@ int main(int argc, char *argv[])
             midPPD += PPD[cellI]*mesh.V()[cellI];
             midDR += DR[cellI]*mesh.V()[cellI];
             midTO += TOp[cellI]*mesh.V()[cellI];
-	    STempAverage += STemp * mesh.V()[cellI];
+	        STempAverage += STemp * mesh.V()[cellI];
+            midTu += Tu*mesh.V()[cellI];
 
             cellsum++;
             volume += mesh.V()[cellI];
@@ -436,7 +463,6 @@ int main(int argc, char *argv[])
         PMV.write();
         PPD.write();
         TOp.write();
-        RH.write();
 
         Info<< "Mean Radiation temperature " << (STempAverage/volume) << " °C" << nl
             << "Water vapour pressure " << PA << " Pa" <<nl
@@ -449,7 +475,7 @@ int main(int argc, char *argv[])
             << nl
             << "Average operative temperature = " << (midTO/volume)-273.15
             << " °C" << nl
-            << "Turbulence = "<< Tu << " %" << endl;
+            << "Averaged Turbulence = "<< midTu/volume << " %" << endl;
 
         if
         (
@@ -511,7 +537,7 @@ int main(int argc, char *argv[])
 
                 Info<< "Create field nut\n" << endl;
 
-                const volScalarField nut 
+                const volScalarField nut
                 (
                     IOobject
                     (
@@ -558,21 +584,21 @@ int main(int argc, char *argv[])
 //                        scalar cellsum(0);
 //                        scalar midAoA(0);
 //                        scalar volume(0);
-//            
+//
 //                        forAll(mesh.cells(), cellI)
 //                        {
 //                            midAoA += AoA[cellI] * mesh.V()[cellI];
 //                            volume += mesh.V()[cellI];
 //                            cellsum++;
 //                        };
-//            
+//
 //                        scalar maxValue = max(AoA).value();
-//            
+//
 //                        Info<< "Average age of air "
 //                            << (midAoA/volume) << " s\n"
 //                            << "Maximum age of air "
 //                            << maxValue << " s\n";
-//            
+//
 //                        // AE = (Tn/2TM) x 100 %
 //                        Info<< "Room volume "
 //                            << gSum(mesh.V()) << " m3\n";
@@ -588,7 +614,7 @@ int main(int argc, char *argv[])
             else
             {
                 Info<< "No AoA file found in last time dictionary\n"
-                    << "Skip calculation of AoA\n" 
+                    << "Skip calculation of AoA\n"
                     << endl;
             }
 */
