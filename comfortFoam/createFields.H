@@ -17,16 +17,16 @@
         const scalar clo (readScalar(comfortFoamDict.lookup("clo")));
 
 	    // Metabolic rate
-        const scalar met (readScalar(comfortFoamDict.lookup("met")));	
+        const scalar met (readScalar(comfortFoamDict.lookup("met")));
 
         // External work
         const scalar wme (readScalar(comfortFoamDict.lookup("wme")));
-        
-        //- Mass flow of air m3
-    //    const scalar sumZuluft (readScalar(comfortFoamDict.lookup("Zuluft")));
 
-		// Room humidity 
-        const scalar RH1 (readScalar(comfortFoamDict.lookup("RH")));  
+        //- Mass flow of air m3/h
+    //    const scalar sumZuluft (readScalar(comfortFoamDict.lookup("AmountOfInletsFlow")));
+
+		// Room humidity
+        const scalar RH1 (readScalar(comfortFoamDict.lookup("RH")));
 
 
 	IOobject THeader
@@ -37,10 +37,19 @@
 		IOobject::MUST_READ
 	);
 
+	IOobject kHeader
+	(
+		"k",
+		runTime.timeName(),
+		mesh,
+		IOobject::READ_IF_PRESENT,
+        IOobject::NO_WRITE
+	);
+
     volScalarField G
     (
-	IOobject
-	(
+        IOobject
+        (
         	"G",
         	runTime.timeName(),
         	mesh,
@@ -48,21 +57,23 @@
         	IOobject::NO_WRITE
     	),
         mesh,
-        dimensionedScalar("G", dimensionSet(0,0,0,0,0,0,0), 0.0)
+        dimensionedScalar("G", dimensionSet(0,0,0,0,0,0,0), 0.0),
+        "zeroGradient"
     );
 
-    volScalarField w
+    volScalarField relHum
     (
         IOobject
         (
-            "w",
+            "relHum",
             runTime.timeName(),
             mesh,
             IOobject::READ_IF_PRESENT,
             IOobject::NO_WRITE
         ),
         mesh,
-        dimensionedScalar("w", dimensionSet(0,0,0,0,0,0,0), 0.0)
+        dimensionedScalar("relHum", dimensionSet(0,0,0,0,0,0,0), 0.0),
+        "zeroGradient"
     );
 
     volScalarField RH
@@ -73,10 +84,11 @@
             runTime.timeName(),
             mesh,
             IOobject::NO_READ,
-            IOobject::AUTO_WRITE
+            IOobject::NO_WRITE
         ),
         mesh,
-        dimensionedScalar("RH", dimensionSet(0,0,0,0,0,0,0), 0.0)
+        dimensionedScalar("RH", dimensionSet(0,0,0,0,0,0,0), 0.0),
+        "zeroGradient"
     );
 
     IOobject UHeader
@@ -106,7 +118,8 @@
             IOobject::AUTO_WRITE
         ),
         mesh,
-        dimensionedScalar("TOp", dimensionSet(0,0,0,1,0,0,0), 0.0)
+        dimensionedScalar("TOp", dimensionSet(0,0,0,1,0,0,0), 0.0),
+        "zeroGradient"
     );
 
     volScalarField DR
@@ -120,9 +133,10 @@
             IOobject::AUTO_WRITE
         ),
         mesh,
-        dimensionedScalar("DR", dimensionSet(0,1,-1,0,0,0,0), 0.0)
+        dimensionedScalar("DR", dimensionSet(0,1,-1,0,0,0,0), 0.0),
+        "zeroGradient"
 	);
-	
+
     volScalarField PMV
     (
         IOobject
@@ -134,9 +148,10 @@
 			IOobject::AUTO_WRITE
         ),
 		mesh,
-		dimensionedScalar("PMV", dimensionSet(0,0,0,0,0,0,0), 0.0)
+		dimensionedScalar("PMV", dimensionSet(0,0,0,0,0,0,0), 0.0),
+        "zeroGradient"
 	);
-	
+
 	volScalarField PPD
     (
         IOobject
@@ -148,7 +163,8 @@
             IOobject::AUTO_WRITE
         ),
         mesh,
-        dimensionedScalar("PPD", dimensionSet(0,0,0,0,0,0,0), 0.0)
+        dimensionedScalar("PPD", dimensionSet(0,0,0,0,0,0,0), 0.0),
+        "zeroGradient"
 	);
 
 	bool RHswitch = false;
