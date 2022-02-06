@@ -121,11 +121,8 @@ int main(int argc, char *argv[])
 
 		//- Radiation Model not available? Lets use classic
         if (G.headerOk()!=1)
-		{
             STemp = radiationTemperature(mesh, Patches);
-			Info << "Radiation Temperature: " << STemp << " °C" << endl;
-		}
-		
+
         forAll (mesh.cells(), cellI)
         {
 			ASHRAELevel80[cellI] = 0;
@@ -148,7 +145,7 @@ int main(int argc, char *argv[])
 			if ( (T[cellI]> 283.15) && (T[cellI]< 306.65) )
 			{			
 				//- Calculate the operative room air temperature
-				TOp[cellI] = T[cellI] + (STemp + 273.15) / 2.0;
+				TOp[cellI] = ( T[cellI] + (STemp + 273.15)) / 2.0;
 				
 				ce = 0;
 
@@ -174,10 +171,10 @@ int main(int argc, char *argv[])
 				//- temperature depending on the level of conditioning.
 				t_cmf = (0.31 * (T[cellI]-273.15)) + 17.8;
 				
-				if ( (T[cellI]-273.15 >= ( t_cmf - 3.5 )) && (T[cellI]-273.15 <= ( t_cmf + 3.5 + ce)) )
+				if (( t_cmf - 3.5 ) && ( t_cmf + 3.5 + ce) )
 					ASHRAELevel80[cellI] = 1;
 				
-				if ( (T[cellI]-273.15 >= ( t_cmf - 2.5 )) && (T[cellI]-273.15 <= ( t_cmf + 2.5 + ce)) )
+				if (( t_cmf - 2.5 ) && ( t_cmf + 2.5 + ce) )
 					ASHRAELevel90[cellI] = 1;
 
 			}
