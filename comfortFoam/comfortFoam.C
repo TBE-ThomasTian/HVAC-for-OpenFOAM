@@ -47,13 +47,14 @@ Autor
     Manuel Scheu
 
 Version
-    3.0
+    3.1
 
 \*---------------------------------------------------------------------------*/
 
 #include "fvCFD.H"
 #include "singlePhaseTransportModel.H"
 #include "wallFvPatch.H"
+#include "externalWallHeatFluxTemperatureFvPatchScalarField.H"
 #include "cellSet.H"
 #include "turbulentTransportModel.H"
 #include "turbulentFluidThermoModel.H"
