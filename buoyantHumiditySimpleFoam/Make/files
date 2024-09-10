@@ -1,0 +1,3 @@
+buoyantHumiditySimpleFoam.C
+
+EXE = $(FOAM_APPBIN)/buoyantHumiditySimpleFoam
