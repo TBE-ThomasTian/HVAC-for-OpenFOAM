@@ -1,0 +1,3 @@
+UTCIFoam.C
+
+EXE = $(FOAM_APPBIN)/UTCIFoam
