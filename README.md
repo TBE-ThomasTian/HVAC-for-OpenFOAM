@@ -36,64 +36,13 @@ Advanced HVAC simulation toolkit for OpenFOAM, providing specialized solvers and
 - **humidityRhoThermo**: Thermophysical model extension for humidity calculations
 - **solarCalculator**: Solar position and radiation calculations
 
-## Quick Start
-
-### Prerequisites
-- OpenFOAM v2412 or later
-- Standard OpenFOAM development environment
-- C++ compiler (GCC/Clang)
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/tian-pvam/HVAC-for-OpenFOAM.git
-cd HVAC-for-OpenFOAM
-
-# IMPORTANT: Build order matters due to dependencies
-
-# 1. First, install the humidity library into OpenFOAM source
-cd $FOAM_SRC/thermophysicalModels/basic
-# Add these lines to Make/files after liquidThermo.C:
-# humidityRhoThermo/humidityRhoThermo.C
-# humidityRhoThermo/humidityRhoThermos.C 
-# humidityRhoThermo/derivedFvPatchFields/fixedHumidity/fixedHumidityFvPatchScalarField.C
-wmake libso
-
-# 2. Build CFD solvers with humidity support
-cd $FOAM_RUN/../HVAC-for-OpenFOAM/buoyantHumidityPimpleFoam && wmake
-cd ../buoyantHumiditySimpleFoam && wmake
-
-# 3. Build comfort analysis utilities
-cd ../comfortFoam && wmake
-cd ../UTCIFoam && wmake
-cd ../ASHRAE55 && wmake
-
-# 4. Build boundary conditions
-cd ../buildingElementBC && wmake
-
-# 5. Build additional utilities as needed
-cd ../AoAFoam && wmake
-cd ../solarCalculator && wmake libso
-cd ../windDrivenRainFoam && wmake
-```
-
-### Basic Usage Example
-
-```bash
-# Run a humidity test case
-cd humidityRhoThermo/tutorials/laminar/fixedHumidityBC
-./clean  # Clean previous results
-./run    # Run mesh conversion and solver
-paraFoam # Visualize results
-
 # Post-process with comfort analysis
 comfortFoam  # Calculates PMV, PPD, DR indices
 UTCIFoam     # Calculates UTCI index
 ASHRAE55Foam # ASHRAE-55 compliance check
 ```
 
-## 📖 Documentation
+## Documentation
 
 ### Solver Documentation
 - [buoyantHumidityPimpleFoam](buoyantHumidityPimpleFoam/README.md) - Transient humidity solver
@@ -136,6 +85,6 @@ All comfort tools follow established standards:
 - Building facade performance analysis
 - Rain penetration and moisture risk assessment
 
-## 📄 License
+## License
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
