@@ -1,0 +1,27 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Web:      www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+
+FoamFile
+{
+    version         2.0;
+    format          ascii;
+    class           dictionary;
+    object          comfortFoamDict;
+}
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Thermal comfort parameters according to ISO 7730
+// 1 met = 58.15 W/m²
+
+clo     0.3;    // Clothing insulation [clo]
+met     1.2;    // Metabolic rate [met]
+wme     0;      // External work [met] (usually 0)
+RH      50;     // Default relative humidity [%] (used if no humidity field available)
+
+// ************************************************************************* //

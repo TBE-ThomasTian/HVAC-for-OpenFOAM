@@ -1,0 +1,13 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      comfortFoamDict;
+}
+
+clo     0.5;    // Clothing insulation [clo]
+met     1.2;    // Metabolic rate [met]
+wme     0;      // External work [met]
+RH      60;     // Default relative humidity [%] - will be overridden by field
