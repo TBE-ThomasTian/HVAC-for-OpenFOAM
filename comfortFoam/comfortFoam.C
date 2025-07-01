@@ -45,6 +45,12 @@ Description
     - thermo::relHum (from buoyantHumiditySimpleFoam, range [0,1])
     - relHum (legacy field, range [0,100] or [0,1])
     - Default constant value if no field available
+    
+    Supported radiation fields (in order of preference):
+    - G: Incident radiation field (W/m^2) from radiation models
+    - qr: Radiative heat flux field (W/m^2) from some radiation models
+    - IDefault: Default radiation intensity (W/m^2/sr) from DOM models
+    - Fallback: Area-weighted wall temperature calculation
 
     Usage examples:
     comfortFoam                           # Analyze entire mesh
@@ -73,6 +79,7 @@ Version
 #include "turbulentFluidThermoModel.H"
 #include "radiationModel.H"
 #include "atmBoundaryLayerInletVelocityFvPatchVectorField.H"
+#include "mathematicalConstants.H"
 
 // * * * * * * * * * * * * * * * Constants * * * * * * * * * * * * * * * * //
 
@@ -301,15 +308,26 @@ Foam::scalar calculateWaterVapourPressure(scalar temperature, scalar relativeHum
 Foam::scalar calculateTurbulentIntensity
 (
     scalar velocity,
-    scalar turbulentKineticEnergy,
-    bool turbulenceAvailable
+    scalar k,  // turbulent kinetic energy
+    scalar epsilon,  // turbulent dissipation rate
+    scalar omega,    // specific dissipation rate
+    const word& turbulenceModel
 )
 {
-    if (velocity > SMALL && turbulenceAvailable)
+    if (velocity > SMALL)
     {
-        return Foam::sqrt(2.0/3.0 * turbulentKineticEnergy) / velocity;
+        if (turbulenceModel == "k-epsilon" || turbulenceModel == "k-omega" || turbulenceModel == "k-only")
+        {
+            // Standard formula: Tu = sqrt(2/3 * k) / U
+            return Foam::sqrt(2.0/3.0 * k) / velocity;
+        }
+        else
+        {
+            // Default assumption for mixed convection
+            return 0.4;  // 40%
+        }
     }
-    return 0.0;
+    return 0.4;  // Default 40% for zero velocity
 }
 
 // Calculate draught rating (DR)
@@ -817,18 +835,41 @@ int main(int argc, char *argv[])
         }
 
         // Check for turbulence field
+        // Check for turbulence fields
         bool turbulenceAvailable = false;
         autoPtr<volScalarField> kField;
+        autoPtr<volScalarField> epsilonField;
+        autoPtr<volScalarField> omegaField;
+        
+        word turbulenceModel = "none";
 
         if (kHeader.typeHeaderOk<volScalarField>())
         {
-            Info<< "Turbulence field k available" << endl;
-            turbulenceAvailable = true;
             kField.reset(new volScalarField(kHeader, mesh));
+            turbulenceAvailable = true;
+            
+            // Check which turbulence model is used
+            if (epsilonHeader.typeHeaderOk<volScalarField>())
+            {
+                epsilonField.reset(new volScalarField(epsilonHeader, mesh));
+                turbulenceModel = "k-epsilon";
+                Info<< "Turbulence model: k-epsilon" << endl;
+            }
+            else if (omegaHeader.typeHeaderOk<volScalarField>())
+            {
+                omegaField.reset(new volScalarField(omegaHeader, mesh));
+                turbulenceModel = "k-omega";
+                Info<< "Turbulence model: k-omega SST" << endl;
+            }
+            else
+            {
+                turbulenceModel = "k-only";
+                Info<< "Turbulence field k available (no epsilon/omega found)" << endl;
+            }
         }
         else
         {
-            Info<< "No turbulence field k available" << endl;
+            Info<< "No turbulence fields available - assuming Tu = 40%" << endl;
         }
 
         // Load velocity field
@@ -865,17 +906,49 @@ int main(int argc, char *argv[])
             // Clamp temperature to reasonable range
             scalar cellTemp = Foam::min(400.0, T[cellI]);
             
-            // Determine radiation temperature
+            // Determine radiation temperature from available radiation fields
             scalar cellRadTemp;
             if (G.headerOk())
             {
-                // Use incident radiation field G
+                // Use incident radiation field G (primary choice)
                 scalar gValue = Foam::max(0.0, Foam::min(50000.0, G[cellI]));
+                cellRadTemp = Foam::pow(gValue / (4.0 * ComfortConstants::stefanBoltzmannConstant), 0.25) - 273.0;
+            }
+            else if (qrHeader.typeHeaderOk<volScalarField>())
+            {
+                // Use radiative heat flux field qr
+                volScalarField qr(qrHeader, mesh);
+                // qr is typically the net radiative heat flux in W/m^2
+                // For a gray surface: qr = epsilon * sigma * (T^4 - T_rad^4)
+                // Assuming epsilon = 0.9 and using local temperature to estimate T_rad
+                scalar epsilon = 0.9;
+                scalar localTemp = cellTemp;
+                scalar qrValue = qr[cellI];
+                // Solve for T_rad from: qr = epsilon * sigma * (T^4 - T_rad^4)
+                scalar T4_rad = Foam::pow(localTemp, 4) - qrValue / (epsilon * ComfortConstants::stefanBoltzmannConstant);
+                if (T4_rad > 0)
+                {
+                    cellRadTemp = Foam::pow(T4_rad, 0.25) - 273.0;
+                }
+                else
+                {
+                    // Fallback to local temperature if calculation gives invalid result
+                    cellRadTemp = localTemp - 273.0;
+                }
+            }
+            else if (IDefaultHeader.typeHeaderOk<volScalarField>())
+            {
+                // Use default radiation intensity field IDefault
+                volScalarField IDefault(IDefaultHeader, mesh);
+                // IDefault is radiation intensity in W/m^2/sr
+                // Total irradiance G = 4*pi*I for isotropic radiation
+                scalar gValue = 4.0 * constant::mathematical::pi * IDefault[cellI];
+                gValue = Foam::max(0.0, Foam::min(50000.0, gValue));
                 cellRadTemp = Foam::pow(gValue / (4.0 * ComfortConstants::stefanBoltzmannConstant), 0.25) - 273.0;
             }
             else
             {
-                // Use area-weighted wall temperature
+                // Fallback: Use area-weighted wall temperature
                 cellRadTemp = calculateRadiationTemperature(mesh, patches);
             }
             
@@ -909,8 +982,10 @@ int main(int argc, char *argv[])
             scalar Tu = calculateTurbulentIntensity
             (
                 mag(U[cellI]),
-                turbulenceAvailable ? kField()[cellI] : 0.0,
-                turbulenceAvailable
+                turbulenceAvailable && kField.valid() ? kField()[cellI] : 0.0,
+                turbulenceAvailable && epsilonField.valid() ? epsilonField()[cellI] : 0.0,
+                turbulenceAvailable && omegaField.valid() ? omegaField()[cellI] : 0.0,
+                turbulenceModel
             );
             
             // Calculate comfort parameters

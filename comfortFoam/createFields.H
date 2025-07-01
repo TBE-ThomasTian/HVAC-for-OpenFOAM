@@ -43,6 +43,24 @@
         IOobject::NO_WRITE
 	);
 
+	IOobject epsilonHeader
+	(
+		"epsilon",
+		runTime.timeName(),
+		mesh,
+		IOobject::READ_IF_PRESENT,
+        IOobject::NO_WRITE
+	);
+
+	IOobject omegaHeader
+	(
+		"omega",
+		runTime.timeName(),
+		mesh,
+		IOobject::READ_IF_PRESENT,
+        IOobject::NO_WRITE
+	);
+
     volScalarField G
     (
         IOobject
@@ -56,6 +74,25 @@
         mesh,
         dimensionedScalar("G", dimensionSet(0,0,0,0,0,0,0), 0.0),
         "zeroGradient"
+    );
+
+    // Additional radiation fields for different radiation models
+    IOobject qrHeader
+    (
+        "qr",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::NO_WRITE
+    );
+
+    IOobject IDefaultHeader
+    (
+        "IDefault",
+        runTime.timeName(),
+        mesh,
+        IOobject::READ_IF_PRESENT,
+        IOobject::NO_WRITE
     );
 
     volScalarField relHum

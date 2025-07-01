@@ -11,6 +11,9 @@ comfortFoam is an OpenFOAM post-processing utility that calculates thermal comfo
 - **Regional Analysis**: Support for cellSet/cellZone-based comfort evaluation
 - **Volume-Weighted Averaging**: Accurate spatial averaging for room-level metrics
 - **Flexible Humidity Input**: Compatible with various OpenFOAM solver outputs
+- **Multiple Turbulence Models**: Supports k-epsilon, k-omega SST, and other models
+- **Advanced Radiation Handling**: Compatible with various radiation models (P1, fvDOM, etc.)
+- **Validation Mode**: Built-in ISO 7730 validation capability
 
 ## Thermal Comfort Indices
 
@@ -57,6 +60,13 @@ comfortFoam
 | `-cellSet <name>` | Calculate comfort only for specified cellSet | - |
 | `-cellZone <name>` | Calculate comfort only for specified cellZone | - |
 | `-noWrite` | Calculate without writing fields | false |
+| `-validate` | Run ISO 7730 validation mode | false |
+| `-validateAirTemp <T>` | Air temperature for validation [°C] | - |
+| `-validateRadTemp <T>` | Radiant temperature for validation [°C] | - |
+| `-validateVelocity <v>` | Air velocity for validation [m/s] | - |
+| `-validateRH <RH>` | Relative humidity for validation [%] | - |
+| `-validateMet <met>` | Metabolic rate for validation [met] | - |
+| `-validateClo <clo>` | Clothing insulation for validation [clo] | - |
 
 ### Configuration File
 
@@ -130,16 +140,26 @@ comfortFoam searches for humidity fields in this order:
 
 For draft rating calculation:
 - `k` - Turbulent kinetic energy [m²/s²]
-- `epsilon` - Turbulent dissipation rate [m²/s³]
+- `epsilon` - Turbulent dissipation rate [m²/s³] (k-epsilon models)
+- `omega` - Specific dissipation rate [1/s] (k-omega SST models)
 - If not present, assumes Tu = 40% (typical for mixed convection)
+
+### Optional Radiation Fields
+
+For accurate mean radiant temperature calculation (in order of preference):
+- `G` - Incident radiation field [W/m²] from radiation models
+- `qr` - Radiative heat flux field [W/m²] from some radiation models
+- `IDefault` - Default radiation intensity [W/m²/sr] from DOM models
+- If not present, uses area-weighted wall temperature
 
 ## Output Fields
 
-comfortFoam creates three fields in each time directory:
+comfortFoam creates four fields in each time directory:
 
 1. **PMV** - Predicted Mean Vote [-3 to +3]
 2. **PPD** - Predicted Percentage of Dissatisfied [%]
 3. **DR** - Draft Rating [%]
+4. **TOp** - Operative Temperature [K]
 
 ## Examples
 
@@ -182,10 +202,10 @@ comfortFoam -region indoorAir
 
 ## Limitations
 
-1. **Mean Radiant Temperature**: Currently assumes Tr = Ta. For more accurate results with radiation, use ASHRAE55Foam or UTCIFoam
-2. **Steady-State Model**: PMV/PPD assumes thermal equilibrium
-3. **Uniform Conditions**: Best suited for spaces with relatively uniform conditions
-4. **Activity Level**: Assumes constant metabolic rate
+1. **Steady-State Model**: PMV/PPD assumes thermal equilibrium
+2. **Uniform Conditions**: Best suited for spaces with relatively uniform conditions
+3. **Activity Level**: Assumes constant metabolic rate
+4. **Comfort Categories**: For EN 15251 comfort categories, use ASHRAE55Foam
 
 ## Validation
 
@@ -193,6 +213,16 @@ The implementation has been validated against:
 - ISO 7730:2005 reference tables
 - ASHRAE Fundamentals Handbook
 - Published PMV/PPD calculation tools
+
+### Validation Example
+
+To verify ISO 7730 compliance:
+```bash
+comfortFoam -validate -validateAirTemp 22 -validateRadTemp 22 \
+            -validateVelocity 0.1 -validateRH 60 \
+            -validateMet 1.2 -validateClo 0.5
+# Expected: PMV ≈ -0.75, PPD ≈ 17%
+```
 
 ## References
 
@@ -218,6 +248,9 @@ For detailed output, modify Info statements in the source code and recompile.
 - v1.1: Added cellSet/cellZone support
 - v1.2: Improved humidity field detection
 - v2.0: Updated for OpenFOAM v2412+
+- v3.0: Added validation mode and improved ISO 7730 compliance
+- v3.1: Enhanced turbulence model support (k-epsilon, k-omega SST)
+- v3.2: Advanced radiation field handling (G, qr, IDefault)
 
 ## Support
 
