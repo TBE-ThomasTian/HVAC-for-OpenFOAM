@@ -1,0 +1,3 @@
+windDrivenRainFoam.C
+
+EXE = $(FOAM_APPBIN)/windDrivenRainFoam
