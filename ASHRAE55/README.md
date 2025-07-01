@@ -2,9 +2,14 @@
 
 ## Overview
 
-ASHRAE55Foam is an OpenFOAM post-processing utility that calculates thermal comfort metrics according to the ANSI/ASHRAE Standard 55-2020 Adaptive Comfort Model. It evaluates indoor and outdoor thermal comfort conditions in CFD simulations by computing operative temperature and determining compliance with ASHRAE 55 acceptability criteria.
+ASHRAE55Foam is an OpenFOAM post-processing utility that calculates thermal comfort metrics according to the ANSI/ASHRAE Standard 55-2020 Adaptive Comfort Model. It evaluates indoor and outdoor thermal comfort conditions in CFD simulations by computing operative temperature and determining compliance with ASHRAE 55 acceptability criteria. The tool works globally by automatically extracting location data from EPW weather files.
 
 ## Features
+
+- **Global Location Support**
+  - Automatically extracts latitude, longitude, and time zone from EPW files
+  - Works for any location worldwide without manual coordinate input
+  - Supports command-line override of location parameters
 
 - **Thermal Comfort Assessment**
   - Calculates Operative Temperature (TOp) - the average of air temperature and mean radiant temperature
@@ -14,12 +19,12 @@ ASHRAE55Foam is an OpenFOAM post-processing utility that calculates thermal comf
 - **Solar Radiation Integration**
   - Optimized for OpenFOAM 2412+ with native solar radiation models
   - Automatically reads radiation field 'G' from OpenFOAM radiation models (solarLoad, P1, fvDOM)
-  - Includes fallback EPW-based solar calculations for older OpenFOAM versions
+  - Includes fallback EPW-based solar calculations with proper time zone corrections
 
 - **Climate Data Processing**
   - Parses EPW (EnergyPlus Weather) files to calculate running mean outdoor temperature
   - Uses 30-day exponentially weighted running mean per ASHRAE 55 requirements
-  - Supports direct specification of running mean temperature
+  - Extracts hourly radiation data for accurate MRT calculations
 
 ## Installation
 
@@ -53,28 +58,36 @@ ASHRAE55Foam [OPTIONS]
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-epw <fileName>` | EPW weather file for running mean calculation | - |
+| `-epw <fileName>` | EPW weather file for running mean calculation and location data | - |
 | `-dayOfYear <scalar>` | Day of year (1-365) for EPW calculation | 180 |
+| `-hour <scalar>` | Hour of day for solar calculations (0-24) | 12.0 |
 | `-solarData` | Use detailed solar calculations from EPW (only if no OpenFOAM solar model) | false |
-| `-latitude <scalar>` | Site latitude in degrees | 50.0 |
-| `-longitude <scalar>` | Site longitude in degrees | 8.0 |
+| `-latitude <scalar>` | Site latitude in degrees (overrides EPW value) | EPW value |
+| `-longitude <scalar>` | Site longitude in degrees (overrides EPW value) | EPW value |
 | `-runningMean <scalar>` | Directly specify running mean outdoor temperature in C | - |
 
 ### Examples
 
-1. **Using EPW file for climate data:**
+1. **Using EPW file with automatic location detection:**
    ```bash
+   # Automatically uses location from EPW file
    ASHRAE55Foam -epw weather.epw -dayOfYear 200
    ```
 
-2. **Direct specification of running mean temperature:**
+2. **Bangkok example with solar calculations:**
    ```bash
-   ASHRAE55Foam -runningMean 25.5
+   # Automatically detects Bangkok coordinates from EPW
+   ASHRAE55Foam -epw THA_Bangkok.484560_IWEC.epw -dayOfYear 180 -hour 14 -solarData
    ```
 
-3. **With solar calculations from EPW (for older OpenFOAM versions):**
+3. **Override EPW coordinates if needed:**
    ```bash
-   ASHRAE55Foam -epw weather.epw -solarData -latitude 40.7 -longitude -74.0
+   ASHRAE55Foam -epw weather.epw -solarData -latitude 40.7 -longitude -74.0 -hour 15
+   ```
+
+4. **Direct specification of running mean temperature:**
+   ```bash
+   ASHRAE55Foam -runningMean 25.5
    ```
 
 ## Required Input Fields
@@ -113,9 +126,19 @@ When operative temperature > 25 C and air speed ≥ 0.6 m/s:
 
 ### Mean Radiant Temperature Calculation
 
-- **With radiation model**: Converts irradiance G to MRT using empirical correlations
-- **Without radiation model**: Uses area-weighted wall temperature average
+- **With OpenFOAM radiation model**: Converts irradiance G to MRT using empirical correlations
+- **With EPW solar data**: Calculates solar position based on location and time zone
+- **Without radiation data**: Uses area-weighted wall temperature average
 - Solar effects are limited to realistic ranges (5-20 C temperature rise)
+- Time zone corrections ensure accurate solar calculations globally
+
+### Location Data from EPW
+
+The tool automatically extracts from EPW files:
+- Latitude and longitude for solar position calculations
+- Time zone (GMT offset) for accurate local solar time
+- Location name for reference
+- Hourly weather and radiation data
 
 ## Applications
 
@@ -125,11 +148,18 @@ When operative temperature > 25 C and air speed ≥ 0.6 m/s:
 - Natural ventilation design
 - Compliance checking with ASHRAE 55-2020 standards
 
+## Notes
+
+- The tool is designed to work globally with any standard EPW weather file
+- MRT formulas are universally valid but not specifically optimized for tropical regions
+- For most accurate results, use OpenFOAM v2412+ with native solar radiation models
+
 ## Version Information
 
-- **Version**: 1.2
+- **Version**: 1.3
 - **Author**: Thomas Tian
 - **License**: GPL-3.0
+- **Updates**: Added automatic global location support from EPW files
 
 ## References
 

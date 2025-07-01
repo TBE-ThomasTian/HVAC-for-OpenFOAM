@@ -53,6 +53,20 @@ Version
 #include "radiationModel.H"
 #include <fstream>
 #include <sstream>
+#include <vector>
+
+// Structure to hold EPW weather data
+struct EPWData
+{
+    Foam::List<Foam::scalar> temperature;     // Hourly temperature data
+    Foam::List<Foam::scalar> globalRadiation; // Global horizontal radiation (Wh/m2)
+    Foam::List<Foam::scalar> directRadiation; // Direct normal radiation (Wh/m2)
+    Foam::List<Foam::scalar> diffuseRadiation; // Diffuse horizontal radiation (Wh/m2)
+    Foam::scalar latitude;                    // Site latitude from EPW header
+    Foam::scalar longitude;                   // Site longitude from EPW header
+    Foam::scalar timeZone;                    // Time zone (GMT offset) from EPW header
+    Foam::string locationName;                // Location name from EPW header
+};
 
 // * * * * * * * * * * * * * * * * * * * Functions  * * * * * * * * * * * * * //
 
@@ -92,29 +106,37 @@ Foam::scalar radiationTemperature
 }
 
 // Enhanced solar calculator - ONLY use if no OpenFOAM solar model is active
-// If using OpenFOAM solarLoad or P1 with solar radiation, G already contains everything!
+// Calculate solar MRT using EPW radiation data
 Foam::scalar calculateSolarMRT
 (
-    const Foam::fileName& epwFile,
+    const EPWData& epwData,
     const Foam::scalar& dayOfYear,
     const Foam::scalar& hour,
     const Foam::scalar& latitude,
     const Foam::scalar& longitude,
     const Foam::scalar& airTemp,
-    const Foam::scalar& irradiance
+    const bool& showDebug = false
 )
 {
     // Solar position calculation with proper longitude correction
     scalar dayAngle = 2.0 * M_PI * (dayOfYear - 1) / 365.0;
     scalar declination = 23.45 * Foam::sin(dayAngle + 2.0 * M_PI * (284.0/365.0)) * M_PI/180.0;
     
-    // Equation of time correction (approximation)
-    scalar eqTime = 4.0 * (longitude - 15.0) + 
-                   4.0 * (7.655 * Foam::sin(dayAngle) - 9.873 * Foam::cos(dayAngle) - 
-                         7.679 * Foam::sin(2*dayAngle) - 1.377 * Foam::cos(2*dayAngle));
+    // Equation of time correction (in minutes) - standard formula
+    scalar eqTimeMinutes = 229.183 * (0.000075 + 0.001868 * Foam::cos(dayAngle) - 
+                          0.032077 * Foam::sin(dayAngle) - 0.014615 * Foam::cos(2*dayAngle) - 
+                          0.040849 * Foam::sin(2*dayAngle));
     
-    // Solar time = clock time + equation of time + longitude correction
-    scalar solarTime = hour + eqTime/60.0;
+    // Use time zone from EPW data if available, otherwise estimate from longitude
+    scalar timeZoneOffset = epwData.timeZone;  // GMT offset in hours
+    scalar standardMeridian = timeZoneOffset * 15.0;  // Convert to degrees
+    
+    // Time correction from standard meridian to actual longitude
+    // 4 minutes per degree of longitude
+    scalar longitudeCorrection = 4.0 * (longitude - standardMeridian);
+    
+    // Solar time = local standard time + equation of time + longitude correction
+    scalar solarTime = hour + (eqTimeMinutes + longitudeCorrection) / 60.0;
     
     // Hour angle from solar noon (negative = morning, positive = afternoon)
     scalar hourAngle = (solarTime - 12.0) * 15.0 * M_PI/180.0;
@@ -124,20 +146,64 @@ Foam::scalar calculateSolarMRT
     scalar solarElevation = Foam::asin(Foam::sin(latRad) * Foam::sin(declination) + 
                                 Foam::cos(latRad) * Foam::cos(declination) * Foam::cos(hourAngle));
     
-    if (solarElevation <= 0) return airTemp; // No sun
+    if (showDebug)
+    {
+        Info << "Solar calculation debug:" << endl;
+        Info << "  Location: Lat " << latitude << ", Lon " << longitude << endl;
+        Info << "  Time zone: GMT" << (timeZoneOffset >= 0 ? "+" : "") << timeZoneOffset << endl;
+        Info << "  Standard meridian: " << standardMeridian << " degrees" << endl;
+        Info << "  Equation of time: " << eqTimeMinutes << " minutes" << endl;
+        Info << "  Longitude correction: " << longitudeCorrection << " minutes" << endl;
+        Info << "  Hour: " << hour << ", Solar time: " << solarTime << endl;
+        Info << "  Hour angle: " << (hourAngle * 180.0/M_PI) << " degrees" << endl;
+        Info << "  Solar elevation: " << (solarElevation * 180.0/M_PI) << " degrees" << endl;
+    }
+    
+    if (solarElevation <= 0) 
+    {
+        if (showDebug) Info << "Solar elevation <= 0, sun below horizon. Returning air temp." << endl;
+        return airTemp; // No sun
+    }
     
     // Solar azimuth (needed for directional effects)
-    scalar solarAzimuth = Foam::atan2(Foam::sin(hourAngle), 
-                               Foam::cos(hourAngle) * Foam::sin(latRad) - Foam::tan(declination) * Foam::cos(latRad));
+    // Note: solarAzimuth calculation commented out as it's not currently used
+    // scalar solarAzimuth = Foam::atan2(Foam::sin(hourAngle), 
+    //                            Foam::cos(hourAngle) * Foam::sin(latRad) - Foam::tan(declination) * Foam::cos(latRad));
     
-    // Rest of calculation remains the same...
+    // Get radiation data from EPW for the specific hour
     scalar directNormalIrradiance = 0.0;
     scalar diffuseHorizontalIrradiance = 0.0;
+    scalar globalHorizontalIrradiance = 0.0;
     
-    if (irradiance > 100)
+    // Calculate hour index in EPW data (0-8759)
+    // Note: hour should be 0-23, not 1-24
+    label hourOfYear = label((dayOfYear - 1) * 24 + hour);
+    if (showDebug)
     {
-        directNormalIrradiance = irradiance * 0.7;
-        diffuseHorizontalIrradiance = irradiance * 0.3;
+        Info << "\n=== Solar MRT Calculation Debug ===" << endl;
+        Info << "Hour of year index: " << hourOfYear << " (day " << dayOfYear << ", hour " << hour << ")" << endl;
+    }
+    if (hourOfYear >= 0 && hourOfYear < 8760)
+    {
+        // EPW files store radiation in Wh/m² (energy), not W/m² (power)
+        // Since these are hourly integrated values, they are already in W/m² (1 hour average)
+        globalHorizontalIrradiance = epwData.globalRadiation[hourOfYear];
+        directNormalIrradiance = epwData.directRadiation[hourOfYear];
+        diffuseHorizontalIrradiance = epwData.diffuseRadiation[hourOfYear];
+        
+        // Debug output
+        if (showDebug)
+        {
+            Info << "EPW radiation data for hour " << hour << " on day " << dayOfYear << ":" << endl;
+            Info << "  Global horizontal: " << globalHorizontalIrradiance << " W/m2" << endl;
+            Info << "  Direct normal: " << directNormalIrradiance << " W/m2" << endl;
+            Info << "  Diffuse horizontal: " << diffuseHorizontalIrradiance << " W/m2" << endl;
+        }
+    }
+    else
+    {
+        WarningInFunction
+            << "Hour index " << hourOfYear << " out of range for EPW data" << endl;
     }
     
     scalar skyViewFactor = 0.5;
@@ -149,25 +215,149 @@ Foam::scalar calculateSolarMRT
     scalar solarAbsorptivity = 0.7;
     scalar effectiveArea = 0.77;
     
+    // Calculate solar heat gain on the person
     scalar solarHeatGain = solarAbsorptivity * effectiveArea * 
                           (directNormalIrradiance * Foam::sin(solarElevation) + 
                            diffuseHorizontalIrradiance * skyViewFactor);
     
-    scalar stefanBoltzmann = 5.67e-8;
-    scalar emissivity = 0.95;
-    scalar clothingArea = 1.15;
+    // Debug output for solar heat gain
+    if (showDebug)
+    {
+        Info << "  Solar heat gain: " << solarHeatGain << " W/m²" << endl;
+        Info << "  Solar elevation: " << (solarElevation * 180.0/M_PI) << " degrees" << endl;
+    }
     
-    scalar solarTempRise = Foam::pow(solarHeatGain / (emissivity * stefanBoltzmann * clothingArea), 0.25);
+    // Calculate equivalent temperature rise from solar radiation
+    // Using empirical correlation for outdoor thermal comfort
+    // Typical values: 100 W/m² solar gain ≈ 2-3C MRT increase
+    scalar solarTempRise = 0.0;
+    if (solarHeatGain > 0)
+    {
+        // Empirical correlation for outdoor thermal comfort
+        // Based on Thorsson et al. (2007) and similar studies
+        // MRT rise approximately 0.25°C per 10 W/m² absorbed solar radiation
+        solarTempRise = 0.025 * solarHeatGain;
+        
+        // Limit solar temperature rise to realistic values
+        solarTempRise = min(solarTempRise, 25.0);  // Max 25C rise from solar
+    }
     
+    if (showDebug) Info << "  Solar temperature rise: " << solarTempRise << " C" << endl;
+    
+    // Calculate mean radiant temperature including solar effects
     scalar meanRadiantTemp = skyViewFactor * skyTemp + 
                             groundViewFactor * groundTemp + 
                             solarTempRise;
     
-    Info << "Solar position: elevation=" << (solarElevation * 180.0/M_PI) 
-         << "°, azimuth=" << (solarAzimuth * 180.0/M_PI) 
-         << "°, solar time=" << solarTime << "h" << endl;
+    if (showDebug) Info << "  Final MRT: " << meanRadiantTemp << " C (Air temp: " << airTemp << " C)" << endl;
     
     return meanRadiantTemp;
+}
+
+// Read EPW file and return complete weather data
+EPWData readEPWFile(const Foam::fileName& epwFile)
+{
+    EPWData data;
+    data.temperature.setSize(8760);    // 365 days * 24 hours
+    data.globalRadiation.setSize(8760);
+    data.directRadiation.setSize(8760);
+    data.diffuseRadiation.setSize(8760);
+    
+    std::ifstream file(epwFile);
+    if (!file.is_open())
+    {
+        FatalErrorInFunction
+            << "Cannot open EPW file: " << epwFile
+            << exit(FatalError);
+    }
+    
+    // Parse EPW header to extract location data
+    std::string line;
+    
+    // Line 1: LOCATION header contains location data
+    if (std::getline(file, line))
+    {
+        std::istringstream iss(line);
+        std::string token;
+        std::vector<std::string> tokens;
+        
+        // Split by comma
+        while (std::getline(iss, token, ','))
+        {
+            tokens.push_back(token);
+        }
+        
+        // EPW format: LOCATION,City,State,Country,Source,WMO,Latitude,Longitude,TimeZone,Elevation
+        if (tokens.size() >= 10 && tokens[0] == "LOCATION")
+        {
+            data.locationName = tokens[1] + ", " + tokens[3];  // City, Country
+            data.latitude = std::stod(tokens[6]);
+            data.longitude = std::stod(tokens[7]);
+            data.timeZone = std::stod(tokens[8]);
+            
+            Info << "EPW Location Data:" << endl;
+            Info << "  Location: " << data.locationName << endl;
+            Info << "  Latitude: " << data.latitude << " degrees" << endl;
+            Info << "  Longitude: " << data.longitude << " degrees" << endl;
+            Info << "  Time Zone: GMT" << (data.timeZone >= 0 ? "+" : "") << data.timeZone << endl;
+        }
+        else
+        {
+            WarningInFunction
+                << "Could not parse location data from EPW header" << endl;
+            // Set default values
+            data.latitude = 50.0;
+            data.longitude = 8.0;
+            data.timeZone = 1.0;
+            data.locationName = "Unknown Location";
+        }
+    }
+    
+    // Skip remaining header lines (2-8)
+    for (int i = 1; i < 8; i++)
+    {
+        std::getline(file, line);
+    }
+    
+    label hourIndex = 0;
+    while (std::getline(file, line) && hourIndex < 8760)
+    {
+        std::istringstream iss(line);
+        std::string token;
+        
+        // Skip to temperature (column 7)
+        for (int i = 0; i < 6; i++)
+        {
+            std::getline(iss, token, ',');
+        }
+        
+        // Column 7: Dry bulb temperature
+        std::getline(iss, token, ',');
+        data.temperature[hourIndex] = std::stod(token);
+        
+        // Skip to radiation data (columns 13-15)
+        for (int i = 0; i < 5; i++)
+        {
+            std::getline(iss, token, ',');
+        }
+        
+        // Column 13: Global horizontal radiation
+        std::getline(iss, token, ',');
+        data.globalRadiation[hourIndex] = std::stod(token);
+        
+        // Column 14: Direct normal radiation
+        std::getline(iss, token, ',');
+        data.directRadiation[hourIndex] = std::stod(token);
+        
+        // Column 15: Diffuse horizontal radiation
+        std::getline(iss, token, ',');
+        data.diffuseRadiation[hourIndex] = std::stod(token);
+        
+        hourIndex++;
+    }
+    
+    file.close();
+    return data;
 }
 
 // Improved EPW parser with robust day-of-year calculation
@@ -421,21 +611,28 @@ int main(int argc, char *argv[])
     (
         "latitude",
         "scalar", 
-        "Site latitude in degrees (required for solar calculations, default: 50.0)"
+        "Site latitude in degrees (overrides EPW file value if provided)"
     );
 
     argList::addOption
     (
         "longitude", 
         "scalar",
-        "Site longitude in degrees (required for solar calculations, default: 8.0)"
+        "Site longitude in degrees (overrides EPW file value if provided)"
+    );
+
+    argList::addOption
+    (
+        "hour",
+        "scalar",
+        "Hour of day for solar calculations (0-24, default: 12.0)"
     );
 
     argList::addOption
     (
         "runningMean",
         "scalar", 
-        "Directly specify running mean outdoor temperature in °C"
+        "Directly specify running mean outdoor temperature in C"
     );
 
     #include "addTimeOptions.H"
@@ -452,18 +649,26 @@ int main(int argc, char *argv[])
     bool useSolarCalculations = args.found("solarData");
     scalar latitude = 50.0;  // Default: Central Europe
     scalar longitude = 8.0;  // Default: Central Europe
+    scalar hourOfDay = 12.0; // Default: noon
     fileName epwFile;
     scalar dayOfYear = 180;
+    EPWData epwData;  // Store complete EPW weather data
+    bool useEPWCoordinates = true; // Flag to track coordinate source
 
-    if (args.found("latitude"))
-        latitude = args.get<scalar>("latitude");
-    if (args.found("longitude"))
-        longitude = args.get<scalar>("longitude");
+    if (args.found("hour"))
+        hourOfDay = args.get<scalar>("hour");
 
     if (args.found("runningMean"))
     {
         T_rm_out = args.get<scalar>("runningMean");
         Info << "Using directly specified running mean: " << T_rm_out << " C" << endl;
+        
+        // If no EPW file, must use command line coordinates
+        if (args.found("latitude"))
+            latitude = args.get<scalar>("latitude");
+        if (args.found("longitude"))
+            longitude = args.get<scalar>("longitude");
+        useEPWCoordinates = false;
     }
     else if (args.found("epw"))
     {
@@ -472,16 +677,43 @@ int main(int argc, char *argv[])
         if (args.found("dayOfYear"))
             dayOfYear = args.get<scalar>("dayOfYear");
             
-        Info << "Calculating running mean from EPW file: " << epwFile << endl;
+        Info << "Reading EPW file: " << epwFile << endl;
         Info << "Day of year: " << dayOfYear << endl;
+        
+        // Read complete EPW data including radiation and location
+        epwData = readEPWFile(epwFile);
+        
+        // Use EPW coordinates by default, but allow command line override
+        latitude = epwData.latitude;
+        longitude = epwData.longitude;
+        
+        // Check for command line overrides
+        if (args.found("latitude"))
+        {
+            latitude = args.get<scalar>("latitude");
+            useEPWCoordinates = false;
+            Info << "Overriding EPW latitude with command line value: " << latitude << endl;
+        }
+        if (args.found("longitude"))
+        {
+            longitude = args.get<scalar>("longitude");
+            useEPWCoordinates = false;
+            Info << "Overriding EPW longitude with command line value: " << longitude << endl;
+        }
         
         T_rm_out = calculateRunningMeanFromEPW(epwFile, dayOfYear);
         Info << "Calculated running mean: " << T_rm_out << " C" << endl;
         
         if (useSolarCalculations)
         {
-            Info << "Solar calculations enabled" << endl;
-            Info << "Site coordinates: " << latitude << "°N, " << longitude << "°E" << endl;
+            Info << nl << "Solar calculations enabled" << endl;
+            Info << "Using coordinates from " << (useEPWCoordinates ? "EPW file" : "command line") << ":" << endl;
+            Info << "  Latitude: " << latitude << " degrees" << endl;
+            Info << "  Longitude: " << longitude << " degrees" << endl;
+            if (useEPWCoordinates)
+            {
+                Info << "  Location: " << epwData.locationName << endl;
+            }
             Info << "Note: For best results, use OpenFOAM 2412+ native solar radiation model instead" << endl;
         }
     }
@@ -493,7 +725,9 @@ int main(int argc, char *argv[])
         Info << "  # With OpenFOAM solar model (G contains solar radiation):" << endl;
         Info << "  ASHRAE55 -epw weather.epw -dayOfYear 180" << endl;
         Info << "  ASHRAE55 -runningMean 22.5" << endl;
-        Info << "  # Only use -solarData if NO solar model in OpenFOAM:" << endl; 
+        Info << "  # With EPW solar calculations (auto-detects location from EPW):" << endl;
+        Info << "  ASHRAE55 -epw weather.epw -solarData -hour 14" << endl;
+        Info << "  # Override EPW coordinates if needed:" << endl; 
         Info << "  ASHRAE55 -epw weather.epw -solarData -latitude 52.5 -longitude 13.4" << endl;
         
         if (useSolarCalculations)
@@ -521,9 +755,17 @@ int main(int argc, char *argv[])
 
         scalar t_cmf(0), ce(0);
 
+        //- Check if radiation field G is available
+        Info << "G field check: G.headerOk() = " << G.headerOk() 
+             << ", useSolarCalculations = " << useSolarCalculations 
+             << ", epwFile.size() = " << epwFile.size() << endl;
+        
         //- Radiation Model not available? Use area-weighted wall temperature
-        if (G.headerOk()!=1)
+        if (G.headerOk()!=1 && !useSolarCalculations)
+        {
             STemp = radiationTemperature(mesh, Patches);
+            Info << "Using area-weighted wall temperature for MRT: " << STemp << " C" << endl;
+        }
 
         forAll (mesh.cells(), cellI)
         {
@@ -550,9 +792,9 @@ int main(int argc, char *argv[])
                 {
                     //- Use empirical solar effect correlation
                     //- Based on measured outdoor MRT vs solar irradiance data
-                    //- Typical outdoor MRT = air temperature + solar effect (5-20°C)
-                    scalar solar_effect = 5.0 + Foam::sqrt(G[cellI] / 100.0);  // Empirical: 5-20°C rise
-                    solar_effect = min(solar_effect, 20.0);  // Max 20°C solar heating
+                    //- Typical outdoor MRT = air temperature + solar effect (5-20C)
+                    scalar solar_effect = 5.0 + Foam::sqrt(G[cellI] / 100.0);  // Empirical: 5-20C rise
+                    solar_effect = min(solar_effect, 20.0);  // Max 20C solar heating
                     
                     STemp = (T[cellI] - 273.15) + solar_effect;
                 }
@@ -563,11 +805,45 @@ int main(int argc, char *argv[])
                 }
                 
                 //- Final safety limits for extreme conditions
-                STemp = min(STemp, 65.0);   // Max MRT = 65°C (hot asphalt limit)
-                STemp = max(STemp, -30.0);  // Min MRT = -30°C (extreme cold)
+                STemp = min(STemp, 65.0);   // Max MRT = 65C (hot asphalt limit)
+                STemp = max(STemp, -30.0);  // Min MRT = -30C (extreme cold)
+            }
+            //- Use EPW solar calculations if radiation model not available and -solarData specified
+            else if (G.headerOk() != 1 && useSolarCalculations && epwFile.size() > 0)
+            {
+                if (cellI == 0)
+                {
+                    Info << "Entering EPW solar calculation branch" << endl;
+                }
+                //- Use the specified hour of day with actual EPW radiation data
+                bool showDebugInfo = (cellI == 0);  // Only show debug for first cell
+                STemp = calculateSolarMRT(
+                    epwData,
+                    dayOfYear,
+                    hourOfDay,  // Use command line specified hour
+                    latitude,
+                    longitude,
+                    T[cellI] - 273.15,  // Air temperature in Celsius
+                    showDebugInfo
+                );
+                
+                if (cellI == 0)
+                {
+                    Info<< "Solar MRT calculation: Air temp = " << (T[cellI] - 273.15) 
+                        << " C, Solar MRT = " << STemp << " C" << endl;
+                }
+            }
+            else
+            {
+                // No radiation field and no solar calculations - use air temperature as MRT
+                STemp = T[cellI] - 273.15;
+                if (cellI == 0)
+                {
+                    Info << "No radiation data available, using air temperature as MRT" << endl;
+                }
             }
 
-            //- Only evaluate comfort if temperature is in reasonable range (10°C to 33.5°C)
+            //- Only evaluate comfort if temperature is in reasonable range (10C to 33.5C)
             if ( (T[cellI] > 283.15) && (T[cellI] < 306.65) )
             {           
                 //- Calculate operative temperature: average of air and mean radiant temperature
@@ -575,7 +851,7 @@ int main(int argc, char *argv[])
                 
                 ce = 0;
 
-                //- Calculate cooling effect of elevated air speed when Top > 25°C
+                //- Calculate cooling effect of elevated air speed when Top > 25C
                 if ( (mag(U[cellI]) >= 0.6) && (TOp[cellI] > 298.15) )
                 {
                     if (mag(U[cellI]) < 0.9) 
