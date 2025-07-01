@@ -36,11 +36,6 @@ Advanced HVAC simulation toolkit for OpenFOAM, providing specialized solvers and
 - **humidityRhoThermo**: Thermophysical model extension for humidity calculations
 - **solarCalculator**: Solar position and radiation calculations
 
-# Post-process with comfort analysis
-comfortFoam  # Calculates PMV, PPD, DR indices
-UTCIFoam     # Calculates UTCI index
-ASHRAE55Foam # ASHRAE-55 compliance check
-
 ## Documentation
 
 ### Solver Documentation
