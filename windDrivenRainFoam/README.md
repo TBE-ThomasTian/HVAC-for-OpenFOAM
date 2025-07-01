@@ -2,18 +2,33 @@
 
 ## Description
 
-windDrivenRainFoam is an OpenFOAM solver for simulating wind-driven rain (WDR) using an Eulerian multiphase approach. The solver calculates how raindrops of different sizes are transported through a wind field and determines rain loads on building facades.
+windDrivenRainFoam is an advanced OpenFOAM solver for simulating wind-driven rain (WDR) using an Eulerian multiphase approach. The solver calculates how raindrops of different sizes are transported through a wind field and determines rain loads on building facades.
 
-**Author**: Aytac Kubilay, ETH Zurich/Empa (March 2012)  
+**Original Author**: Aytac Kubilay, ETH Zurich/Empa (March 2012)  
+**Enhanced Version**: 2024  
 **OpenFOAM Version**: v2412+
 
 ## Features
 
+### Core Features
 - **Multiphase rain modeling**: Simulates multiple raindrop size classes simultaneously
 - **Drag force modeling**: Reynolds number-dependent drag coefficient based on Gunn & Kinzer experimental data
-- **Turbulent dispersion**: Optional modeling of turbulence effects on raindrop trajectories using k-epsilon model
 - **Catch ratio calculation**: Computes specific and global catch ratios for building facades
 - **Temperature-dependent properties**: Accounts for temperature effects on air and water properties
+
+### Enhanced Features (2024)
+- **Generic turbulence modeling**: Supports all OpenFOAM turbulence models (RAS/LES), not limited to k-epsilon
+- **Adaptive time stepping**: CFL-based time step control for rain phases ensures numerical stability
+- **Custom boundary conditions**: 
+  - `windDrivenRainInlet`: Specialized inlet BC for rain with wind angle effects
+  - `catchRatio`: Direct calculation of catch ratio at building surfaces
+- **Modern C++ implementation**: Uses modern OpenFOAM constructs and memory management
+- **Parallel-ready architecture**: Structured for efficient MPI parallelization
+- **Extended droplet physics** (available in library):
+  - Evaporation modeling with Ranz-Marshall correlation
+  - Breakup criteria (bag, shear breakup) based on Weber number
+  - Collision and coalescence efficiency
+  - Drag enhancement due to droplet deformation
 
 ## Physics
 
@@ -53,7 +68,7 @@ case/
 ### transportProperties Dictionary
 
 Example configuration:
-```
+```c++
 phases
 (
     // Phase 1: Small droplets (0.5 mm diameter)
@@ -67,13 +82,21 @@ phases
 );
 
 // Reference values
-Uref            10.0;    // Reference wind velocity [m/s]
 Rh              10.0;    // Horizontal rainfall intensity [mm/h]
-temperature     283.15;  // Temperature [K]
-windScaling     1.0;     // Wind field scaling factor [-]
+temp            283.15;  // Temperature [K] (updated: use 'temp' not 'temperature')
+scalingFactor   1.0;     // Wind field scaling factor [-] (updated: use 'scalingFactor')
 
 // Turbulent dispersion
-Ct              0.0;     // Turbulent dispersion switch (0=off, 1=on)
+solveTD         true;    // Enable turbulent dispersion (updated: boolean flag)
+```
+
+### controlDict Settings (for adaptive time stepping)
+
+```c++
+// Add to system/controlDict for adaptive time stepping
+adjustTimeStep  yes;
+maxCoRain       0.5;     // Maximum Courant number for rain phases
+maxDeltaT       1.0;     // Maximum time step [s]
 ```
 
 ## Usage
@@ -81,10 +104,51 @@ Ct              0.0;     // Turbulent dispersion switch (0=off, 1=on)
 1. Prepare a steady-state wind field using simpleFoam or another appropriate solver
 2. Configure rain phases in `constant/transportProperties`
 3. Set appropriate boundary conditions for alpharain and Urain fields
-4. Run the solver:
+4. Select turbulence model in `constant/turbulenceProperties` (if using turbulent dispersion)
+5. Run the solver:
    ```bash
    windDrivenRainFoam
    ```
+
+### Boundary Conditions Example
+
+```c++
+// 0/U1 - Rain velocity for phase 1
+boundaryField
+{
+    inlet
+    {
+        type            windDrivenRainInlet;
+        terminalVelocity 4.0;  // Terminal velocity [m/s]
+        windAngle       30;    // Wind angle [degrees]
+        value           uniform (0 0 0);
+    }
+    
+    building
+    {
+        type            fixedValue;
+        value           uniform (0 0 0);
+    }
+    
+    outlet
+    {
+        type            inletOutlet;
+        inletValue      uniform (0 0 0);
+    }
+}
+
+// 0/gcr - Global catch ratio
+boundaryField
+{
+    building
+    {
+        type            catchRatio;
+        Rh              10;    // Must match transportProperties
+        phi             phi1;  // Flux field name
+        value           uniform 0;
+    }
+}
+```
 
 ## Output
 

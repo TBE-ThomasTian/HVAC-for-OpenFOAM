@@ -8,32 +8,39 @@ for (int phase_no = 0; phase_no < phases.size(); phase_no++)
 	phase_no_str = convert.str();
 	phase_scrname.append(phase_no_str);
 	
-	surfaceScalarField normalvel
+	tmp<surfaceScalarField> tnormalvel
 	(
-		IOobject
+		new surfaceScalarField
 		(
-			"normalvel",
-			runTime.timeName(),
-			mesh,
-			IOobject::NO_READ,
-			IOobject::NO_WRITE
-		),
-		mag( (mesh.Sf()/mesh.magSf()) & fvc::interpolate(Urain[phase_no]) )
+			IOobject
+			(
+				"normalvel",
+				runTime.timeName(),
+				mesh,
+				IOobject::NO_READ,
+				IOobject::NO_WRITE
+			),
+			mag( (mesh.Sf()/mesh.magSf()) & fvc::interpolate(Urain[phase_no]) )
+		)
 	);
+	const surfaceScalarField& normalvel = tnormalvel();
 
-	volScalarField scrtemp
+	scr.set
 	(
-		IOobject
+		phase_no,
+		new volScalarField
 		(
-			phase_scrname,
-			runTime.timeName(),
-			mesh,
-			IOobject::NO_READ,
-			IOobject::NO_WRITE
-		),
-		(fvc::average(normalvel) * alpharain[phase_no]) * ((3600*1E3)/(Rh*phases[phase_no][1]))
-	);		
-	scr.set(phase_no, &scrtemp);
+			IOobject
+			(
+				phase_scrname,
+				runTime.timeName(),
+				mesh,
+				IOobject::NO_READ,
+				IOobject::NO_WRITE
+			),
+			(fvc::average(normalvel) * alpharain[phase_no]) * ((3600*1E3)/(Rh*phases[phase_no][1]))
+		)
+	);
 	scr[phase_no].write();
 }
 

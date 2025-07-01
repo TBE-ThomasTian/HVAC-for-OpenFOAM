@@ -11,14 +11,8 @@ IOdictionary transportProperties
 		IOobject::NO_WRITE
 	)
 );
-dimensionedScalar Rh
-(
-	transportProperties.lookup("Rh")
-);
-dimensionedScalar temp
-(
-	transportProperties.lookup("temp")
-);	
+dimensionedScalar Rh("Rh", dimless, transportProperties);
+dimensionedScalar temp("temp", dimTemperature, transportProperties);	
 dimensionedScalar rhoa
 (
 	"rhoa",

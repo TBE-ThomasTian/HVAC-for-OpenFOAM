@@ -34,6 +34,8 @@ Description
 
 #include "fvCFD.H"
 #include "simpleControl.H"
+#include "turbulentTransportModel.H"
+#include "singlePhaseTransportModel.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -48,14 +50,27 @@ int main(int argc, char *argv[])
     #include "readGravitationalAcceleration.H"
 
     simpleControl simple(mesh);
+    
+    // Read adaptive time step controls
+    bool adjustTimeStep = runTime.controlDict().lookupOrDefault("adjustTimeStep", false);
+    scalar maxCoRain = runTime.controlDict().lookupOrDefault<scalar>("maxCoRain", 0.5);
+    scalar maxDeltaT = runTime.controlDict().lookupOrDefault<scalar>("maxDeltaT", GREAT);
 
     // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 	#include "createRainFields.H"
-	#include "createTDFields.H"
 	
-	if (solveTD)	{ Info <<nl<< "Solving for the turbulent dispersion of raindrops" << endl; }
-	else { Info <<nl<< "Turbulent dispersion of raindrops is neglected" << endl; }
+	// Create turbulence model if turbulent dispersion is enabled
+	autoPtr<incompressible::turbulenceModel> turbulence;
+	if (solveTD)
+	{
+		Info <<nl<< "Solving for the turbulent dispersion of raindrops" << endl;
+		#include "createTurbulenceFields.H"
+	}
+	else 
+	{ 
+		Info <<nl<< "Turbulent dispersion of raindrops is neglected" << endl; 
+	}
 	
 	GET_parameters(temp,rhoa,mua,rhop);
 	
@@ -67,6 +82,9 @@ int main(int argc, char *argv[])
 	while (simple.loop())
 	{
 	    Info<< nl << "Time = " << runTime.timeName() << nl;
+		
+	    // Adaptive time stepping for rain phases
+	    #include "adaptiveTimeStep.H"
 		
 	    for (int nonOrth=0; nonOrth<=simple.nNonOrthCorr(); nonOrth++)
 	    {
@@ -99,14 +117,20 @@ int main(int argc, char *argv[])
 				CdRe = GET_CdRe(Re);
 				CdRe.correctBoundaryConditions();
 
-				if (solveTD)
+				if (solveTD && turbulence.valid())
 				{ 
-					tfl = 0.2*(k/epsilon);
+					// Calculate turbulent time scales
+					tmp<volScalarField> tk = turbulence->k();
+					tmp<volScalarField> tepsilon = turbulence->epsilon();
+					tfl = 0.2*(tk()/tepsilon());
 					tp = (4*rhop*dp*dp)/(3*mua*CdRe);
 					Ctrain[phase_no] = sqrt( tfl/(tfl+tp) );
+					nutrain = turbulence->nut()()*sqr(Ctrain[phase_no]);
 				}
-				
-				nutrain = nut*sqr(Ctrain[phase_no]);
+				else
+				{
+					nutrain = dimensionedScalar("zero", nutrain.dimensions(), 0.0);
+				}
 				
 				#include "UEqns.H"
 

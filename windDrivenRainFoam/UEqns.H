@@ -1,5 +1,9 @@
 volTensorField Rca(-nutrain*(T(fvc::grad(Urain[phase_no]))));
-Rca = Rca + (2.0/3.0)*sqr(Ctrain[phase_no])*I*k - (2.0/3.0)*I*tr(Rca);
+if (solveTD && turbulence.valid())
+{
+    tmp<volScalarField> tk = turbulence->k();
+    Rca = Rca + (2.0/3.0)*sqr(Ctrain[phase_no])*I*tk() - (2.0/3.0)*I*tr(Rca);
+}
 Rca.correctBoundaryConditions();
 
 surfaceScalarField phiRa
@@ -32,3 +36,4 @@ UrainEqn.solve();
 Urain[phase_no].correctBoundaryConditions();
 
 phirain[phase_no] = fvc::interpolate(Urain[phase_no]) & mesh.Sf();
+
