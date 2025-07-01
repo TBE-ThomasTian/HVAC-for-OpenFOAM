@@ -1,3 +1,0 @@
-comfortFoam.C
-
-EXE = $(FOAM_APPBIN)/comfortFoam
