@@ -14,6 +14,7 @@ comfortFoam is an OpenFOAM post-processing utility that calculates thermal comfo
 - **Multiple Turbulence Models**: Supports k-epsilon, k-omega SST, and other models
 - **Advanced Radiation Handling**: Compatible with various radiation models (P1, fvDOM, etc.)
 - **Validation Mode**: Built-in ISO 7730 validation capability
+- **Parallel Computing**: Full MPI parallel support for large-scale simulations
 
 ## Thermal Comfort Indices
 
@@ -187,6 +188,18 @@ comfortFoam -cellZone occupiedZone
 comfortFoam -region indoorAir
 ```
 
+### Example 4: Parallel execution
+```bash
+# Decompose case for 4 processors
+decomposePar -force
+
+# Run comfort analysis in parallel
+mpirun -np 4 comfortFoam -parallel
+
+# Reconstruct fields (optional)
+reconstructPar -fields '(PMV PPD DR TOp)'
+```
+
 ## Physical Parameters
 
 ### Environmental Parameters
@@ -251,6 +264,7 @@ For detailed output, modify Info statements in the source code and recompile.
 - v3.0: Added validation mode and improved ISO 7730 compliance
 - v3.1: Enhanced turbulence model support (k-epsilon, k-omega SST)
 - v3.2: Advanced radiation field handling (G, qr, IDefault)
+- v3.3: Added full parallel computing support
 
 ## Support
 

@@ -66,7 +66,7 @@ Authors
     Manuel Scheu
 
 Version
-    3.2
+    3.3
 
 \*---------------------------------------------------------------------------*/
 
@@ -187,6 +187,11 @@ void calculateVolumeWeightedAverages
         weightedTemperature += T[cellI] * cellVolume;
         totalVolume += cellVolume;
     }
+    
+    // Reduce for parallel operation
+    reduce(weightedVelocity, sumOp<vector>());
+    reduce(weightedTemperature, sumOp<scalar>());
+    reduce(totalVolume, sumOp<scalar>());
     
     avgVelocity = mag(weightedVelocity / totalVolume);
     avgTemperature = weightedTemperature / totalVolume;
@@ -551,7 +556,9 @@ Foam::labelList getCellsToAnalyze(const fvMesh& mesh, const argList& args)
         
         cellsToAnalyze = selectedCells.toc();
         
-        Info<< "Analyzing " << cellsToAnalyze.size() 
+        label nCells = cellsToAnalyze.size();
+        reduce(nCells, sumOp<label>());
+        Info<< "Analyzing " << nCells 
             << " cells from cellSet " << cellSetName << endl;
     }
     // Check for cellZone option
@@ -575,7 +582,9 @@ Foam::labelList getCellsToAnalyze(const fvMesh& mesh, const argList& args)
         const cellZone& cz = cellZones[zoneID];
         cellsToAnalyze = cz;
         
-        Info<< "Analyzing " << cellsToAnalyze.size() 
+        label nCells = cellsToAnalyze.size();
+        reduce(nCells, sumOp<label>());
+        Info<< "Analyzing " << nCells 
             << " cells from cellZone " << cellZoneName << endl;
     }
     // Use entire mesh
@@ -587,7 +596,8 @@ Foam::labelList getCellsToAnalyze(const fvMesh& mesh, const argList& args)
             cellsToAnalyze[i] = i;
         }
         
-        Info<< "Analyzing entire mesh: " << cellsToAnalyze.size() << " cells" << endl;
+        label nCells = returnReduce(cellsToAnalyze.size(), sumOp<label>());
+        Info<< "Analyzing entire mesh: " << nCells << " cells" << endl;
     }
     
     return cellsToAnalyze;
@@ -597,7 +607,6 @@ Foam::labelList getCellsToAnalyze(const fvMesh& mesh, const argList& args)
 
 int main(int argc, char *argv[])
 {
-    argList::noParallel();
     Foam::timeSelector::addOptions();
     
     argList::addBoolOption
@@ -1030,6 +1039,16 @@ int main(int argc, char *argv[])
         PPD.write();
         TOp.write();
 
+        // Reduce parallel values
+        reduce(volumeWeightedPMV, sumOp<scalar>());
+        reduce(volumeWeightedPPD, sumOp<scalar>());
+        reduce(volumeWeightedDR, sumOp<scalar>());
+        reduce(volumeWeightedTOp, sumOp<scalar>());
+        reduce(volumeWeightedRadTemp, sumOp<scalar>());
+        reduce(volumeWeightedRH, sumOp<scalar>());
+        reduce(volumeWeightedTu, sumOp<scalar>());
+        reduce(totalVolume, sumOp<scalar>());
+        
         // Calculate final averages
         scalar avgPMV = volumeWeightedPMV / totalVolume;
         scalar avgPPD = volumeWeightedPPD / totalVolume;
@@ -1059,7 +1078,8 @@ int main(int argc, char *argv[])
             Info<< "Analysis region: entire mesh" << nl;
         }
         
-        Info<< "Analyzed cells: " << cellsToAnalyze.size() << nl
+        label totalCells = returnReduce(cellsToAnalyze.size(), sumOp<label>());
+        Info<< "Analyzed cells: " << totalCells << nl
             << "Analysis volume: " << totalVolume << " m^3" << nl
             << nl
             << "Mean radiation temperature:     " << avgRadTemp << " degrees C" << nl
