@@ -71,7 +71,7 @@ comfortFoam
 
 ### Configuration File
 
-Create a `comfortFoamDict` file in the `system` directory:
+Create a `comfortFoamDict` file in the `constant` directory:
 
 ```c
 /*--------------------------------*- C++ -*----------------------------------*\
