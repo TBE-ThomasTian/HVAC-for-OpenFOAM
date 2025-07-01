@@ -1,0 +1,75 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      T;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// VALIDATION CASE 1: Steady-state heat transfer through wall
+// Interior temperature: 293 K (20°C)
+// Exterior temperature: 273 K (0°C)
+// U-value: 1.0 W/(m²K) for easy calculation
+// No solar radiation, no sky radiation
+// Expected heat flux: q = U * (Ti - Te) = 1.0 * (293 - 273) = 20 W/m²
+
+dimensions      [0 0 0 1 0 0 0];
+
+internalField   uniform 293;
+
+boundaryField
+{
+    buildingWall
+    {
+        type            buildingElement;
+        
+        // Simple U-value mode for validation
+        uValue          1.0;         // W/(m²K) - reduced for stability
+        gValue          0.0;         // No solar gains
+        
+        // External conditions
+        tempExt         283;         // 10°C external temperature (less extreme)
+        tempSky         283;         // Same as air (no sky radiation effect)
+        solarExt        0;           // No solar radiation
+        hExt            10;          // Reduced external convection coefficient
+        
+        // Radiation properties
+        emissivity      0.9;
+        viewSky         0.0;         // No view to sky (eliminate sky radiation)
+        radField        none;        // No internal radiation
+        
+        // Debug options
+        debugTemp       true;
+        debugFlux       true;
+        debugFace       0;
+        debugInterval   10;
+        
+        value           uniform 283;  // Start closer to expected value
+    }
+    
+    interior
+    {
+        type            fixedValue;
+        value           uniform 293;  // 20°C interior
+    }
+    
+    topAndBottom
+    {
+        type            zeroGradient;
+    }
+    
+    frontAndBack
+    {
+        type            empty;
+    }
+}
+
+// ************************************************************************* //

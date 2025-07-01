@@ -1,0 +1,81 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     buoyantSimpleFoam;
+
+startFrom       startTime;
+
+startTime       0;
+
+stopAt          endTime;
+
+endTime         1000;
+
+deltaT          1;
+
+writeControl    timeStep;
+
+writeInterval   100;
+
+purgeWrite      0;
+
+writeFormat     ascii;
+
+writePrecision  6;
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   6;
+
+runTimeModifiable true;
+
+libs ("libbuildingElementBC.so");
+
+functions
+{
+    wallHeatFlux
+    {
+        type            wallHeatFlux;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    writeTime;
+        patches         (buildingWall);
+    }
+    
+    probes
+    {
+        type            probes;
+        libs            ("libsampling.so");
+        writeControl    timeStep;
+        writeInterval   1;
+        
+        fields
+        (
+            T
+        );
+        
+        probeLocations
+        (
+            (0.001 0.5 0.05)  // Near wall
+            (0.25 0.5 0.05)   // Middle
+            (0.499 0.5 0.05)  // Near interior
+        );
+    }
+}
+
+// ************************************************************************* //
