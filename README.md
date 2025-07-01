@@ -5,7 +5,7 @@
 
 Advanced HVAC simulation toolkit for OpenFOAM, providing specialized solvers and utilities for humidity modeling, thermal comfort analysis, and indoor climate assessment according to international standards (ISO 7730, ASHRAE-55, UTCI).
 
-## 🌟 Features
+## Features
 
 ### Core Capabilities
 - **Humidity Transport Modeling**: Full integration of humidity physics into OpenFOAM's thermophysical framework
@@ -17,26 +17,26 @@ Advanced HVAC simulation toolkit for OpenFOAM, providing specialized solvers and
 
 ### Components
 
-#### 🔧 CFD Solvers
+#### CFD Solvers
 - **buoyantHumidityPimpleFoam**: Transient solver for buoyant, turbulent flow with humidity transport
 - **buoyantHumiditySimpleFoam**: Steady-state solver using SIMPLE algorithm
 - **buoyantBoussinesqPimpleDyMFoam**: Dynamic mesh solver for Boussinesq approximation
 - **windDrivenRainFoam**: Wind-driven rain simulation with multiple droplet phases
 
-#### 📊 Comfort Analysis Tools
+#### Comfort Analysis Tools
 - **comfortFoam**: ISO 7730 thermal comfort (PMV, PPD, Draft Rating)
 - **UTCIFoam**: Universal Thermal Climate Index calculator
 - **ASHRAE55Foam**: ASHRAE Standard 55 compliance analysis
 - **AoAFoam**: Age of Air calculation for ventilation assessment
 
-#### 🏗️ Boundary Conditions
+#### Boundary Conditions
 - **buildingElementBC**: Advanced thermal boundary condition for building walls with multi-layer support
 
-#### 📚 Libraries
+#### Libraries
 - **humidityRhoThermo**: Thermophysical model extension for humidity calculations
 - **solarCalculator**: Solar position and radiation calculations
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - OpenFOAM v2412 or later
@@ -109,10 +109,7 @@ ASHRAE55Foam # ASHRAE-55 compliance check
 ### Boundary Conditions
 - [buildingElementBC](buildingElementBC/README.md) - Multi-layer wall boundary condition with radiation
 
-### Tutorials
-Each component includes tutorial cases in its `tutorials/` directory demonstrating typical usage scenarios.
-
-## 🔬 Technical Details
+## Technical Details
 
 ### Humidity Modeling
 The humidity transport is integrated into OpenFOAM's thermophysical framework through:
@@ -127,31 +124,7 @@ All comfort tools follow established standards:
 - **UTCI**: 6th-order polynomial approximation with radiation effects
 - **ASHRAE-55**: Adaptive comfort model for naturally ventilated spaces
 
-### Workflow Integration
-
-```
-CFD Simulation → Humidity Calculation → Comfort Analysis → Visualization
-     ↓                    ↓                    ↓                ↓
-buoyantHumidity*   humidityRhoThermo    comfortFoam      ParaView
-                   ::correct()          UTCIFoam
-                                       ASHRAE55Foam
-```
-
-## 🛠️ Development
-
-### Coding Standards
-- Follow OpenFOAM coding conventions
-- Use existing patterns for new implementations
-- Maintain backward compatibility where possible
-
-### Contributing
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📚 Applications
+## Applications
 
 - HVAC system design and optimization
 - Indoor air quality assessment
@@ -163,37 +136,6 @@ buoyantHumidity*   humidityRhoThermo    comfortFoam      ParaView
 - Building facade performance analysis
 - Rain penetration and moisture risk assessment
 
-## 🤝 Support
-
-For issues, questions, or contributions:
-- Open an issue on [GitHub](https://github.com/tian-pvam/HVAC-for-OpenFOAM/issues)
-- Check the [Wiki](https://github.com/tian-pvam/HVAC-for-OpenFOAM/wiki) for detailed guides
-- Contact the maintainers
-
 ## 📄 License
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- OpenFOAM Foundation and ESI-OpenCFD for the OpenFOAM framework
-- ASHRAE for thermal comfort standards
-- UTCI consortium for the Universal Thermal Climate Index
-- All contributors and users of this toolkit
-
-## 📊 Citation
-
-If you use HVAC-for-OpenFOAM in your research, please cite:
-
-```bibtex
-@software{hvac_for_openfoam,
-  author = {Thomas Tian},
-  title = {HVAC-for-OpenFOAM: Advanced HVAC Simulation Toolkit},
-  year = {2024},
-  url = {https://github.com/tian-pvam/HVAC-for-OpenFOAM}
-}
-```
-
----
-
-**Note**: This project is under active development. Check the release notes for the latest features and improvements.
