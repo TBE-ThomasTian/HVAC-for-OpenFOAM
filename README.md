@@ -40,7 +40,6 @@ Advanced HVAC simulation toolkit for OpenFOAM, providing specialized solvers and
 comfortFoam  # Calculates PMV, PPD, DR indices
 UTCIFoam     # Calculates UTCI index
 ASHRAE55Foam # ASHRAE-55 compliance check
-```
 
 ## Documentation
 
