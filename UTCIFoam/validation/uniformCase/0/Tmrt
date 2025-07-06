@@ -1,0 +1,21 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      Tmrt;
+}
+
+dimensions      [0 0 0 1 0 0 0];
+
+internalField   uniform 298.15;  // 25°C mean radiant temperature
+
+boundaryField
+{
+    walls
+    {
+        type            fixedValue;
+        value           uniform 298.15;
+    }
+}

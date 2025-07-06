@@ -245,7 +245,7 @@ int main(int argc, char *argv[])
         // Hier die Umrechnung von T von Kelvin zu Grad Celsius**
         // T ist in Kelvin**
 	dimensionedScalar T0("T0", dimensionSet(0, 0, 0, 1, 0), 273.15);
-	T.internalFieldRef() -= T0;
+	T -= T0;
 
         // Check if SVF was provided, otherwise calculate it
         bool SVFProvided = (SVF.headerOk() && max(SVF).value() > SMALL);
@@ -288,10 +288,10 @@ int main(int argc, char *argv[])
                 epwData weather = epwReaderPtr->interpolateData(timeValue);
                 
                 Info << "Weather conditions:" << endl;
-                Info << "  Dry bulb temperature: " << weather.dryBulbTemp << " C" << endl;
+                Info << "  Dry bulb temperature: " << weather.dryBulbTemp << " °C" << endl;
                 Info << "  Relative humidity: " << weather.relHumidity << " %" << endl;
-                Info << "  Direct normal radiation: " << weather.directNormalRadiation << " W/m2" << endl;
-                Info << "  Diffuse horizontal radiation: " << weather.diffuseHorizontalRadiation << " W/m2" << endl;
+                Info << "  Direct normal radiation: " << weather.directNormalRadiation << " W/m²" << endl;
+                Info << "  Diffuse horizontal radiation: " << weather.diffuseHorizontalRadiation << " W/m²" << endl;
                 Info << "  Wind speed: " << weather.windSpeed << " m/s" << endl;
                 
                 // Calculate Tmrt for each cell using EPW data
@@ -319,7 +319,8 @@ int main(int argc, char *argv[])
             // Convert from Kelvin to Celsius if needed
             if (max(Tmrt).value() > 100)  // Likely in Kelvin
             {
-                Tmrt -= 273.15;
+                dimensionedScalar T0_mrt("T0_mrt", dimensionSet(0, 0, 0, 1, 0), 273.15);
+                Tmrt -= T0_mrt;
             }
         }
 
@@ -336,6 +337,10 @@ int main(int argc, char *argv[])
         UTCI.write();
     }
 
+    Info << "\nNote: This UTCI implementation uses a polynomial approximation." << endl;
+    Info << "For the most accurate values, coefficients should be verified against" << endl;
+    Info << "the official UTCI source: Bröde et al. (2012) Int J Biometeorol 56:481-494" << endl;
+    Info << "\nUTCI-Berechnung abgeschlossen." << endl;
     return 0;
 }
 
