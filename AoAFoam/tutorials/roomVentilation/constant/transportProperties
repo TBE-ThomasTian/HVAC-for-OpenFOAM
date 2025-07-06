@@ -1,0 +1,26 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      transportProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+transportModel  Newtonian;
+
+// Laminar diffusivity for Age of Air [m2/s]
+// Typical value for air: 2.5e-5 m2/s
+DT              DT [ 0 2 -1 0 0 0 0 ] 2.5e-5;
+
+// Kinematic viscosity for turbulence model [m2/s]
+nu              nu [ 0 2 -1 0 0 0 0 ] 1.5e-5;
+
+// ************************************************************************* //
