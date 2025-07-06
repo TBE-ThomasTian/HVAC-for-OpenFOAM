@@ -29,6 +29,8 @@ Foam::buildingElementFvPatchScalarField::buildingElementFvPatchScalarField
     layers_(),
     Tlayers_(),
     gValue_(0.0),
+    Rsi_(0.13),
+    Rse_(0.04),
     tempExt_(293.0),
     tempSky_(283.0),
     solarExt_(0.0),
@@ -68,6 +70,8 @@ Foam::buildingElementFvPatchScalarField::buildingElementFvPatchScalarField
     layers_(),
     Tlayers_(),
     gValue_(dict.lookupOrDefault<scalar>("gValue", 0.0)),
+    Rsi_(dict.lookupOrDefault<scalar>("Rsi", 0.13)),
+    Rse_(dict.lookupOrDefault<scalar>("Rse", 0.04)),
     tempExt_(readScalar(dict.lookup("tempExt"))),
     tempSky_(dict.lookupOrDefault<scalar>("tempSky", tempExt_ - 10.0)),
     solarExt_(dict.lookupOrDefault<scalar>("solarExt", 0.0)),
@@ -161,6 +165,8 @@ Foam::buildingElementFvPatchScalarField::buildingElementFvPatchScalarField
     layers_(ptf.layers_),
     Tlayers_(),
     gValue_(ptf.gValue_),
+    Rsi_(ptf.Rsi_),
+    Rse_(ptf.Rse_),
     tempExt_(ptf.tempExt_),
     tempSky_(ptf.tempSky_),
     solarExt_(ptf.solarExt_),
@@ -208,6 +214,8 @@ Foam::buildingElementFvPatchScalarField::buildingElementFvPatchScalarField
     layers_(ptf.layers_),
     Tlayers_(),
     gValue_(ptf.gValue_),
+    Rsi_(ptf.Rsi_),
+    Rse_(ptf.Rse_),
     tempExt_(ptf.tempExt_),
     tempSky_(ptf.tempSky_),
     solarExt_(ptf.solarExt_),
@@ -256,6 +264,8 @@ Foam::buildingElementFvPatchScalarField::buildingElementFvPatchScalarField
     layers_(ptf.layers_),
     Tlayers_(),
     gValue_(ptf.gValue_),
+    Rsi_(ptf.Rsi_),
+    Rse_(ptf.Rse_),
     tempExt_(ptf.tempExt_),
     tempSky_(ptf.tempSky_),
     solarExt_(ptf.solarExt_),
@@ -296,14 +306,14 @@ Foam::buildingElementFvPatchScalarField::buildingElementFvPatchScalarField
 
 Foam::scalar Foam::buildingElementFvPatchScalarField::calculateUValue() const
 {
-    scalar Rtotal = 0.13;  // Internal surface resistance
+    scalar Rtotal = Rsi_;  // Internal surface resistance
     
     forAll(layers_, i)
     {
         Rtotal += layers_[i].thickness / layers_[i].lambda;
     }
     
-    Rtotal += 0.04;  // External surface resistance
+    Rtotal += Rse_;  // External surface resistance
     
     return 1.0/Rtotal;
 }
@@ -369,14 +379,38 @@ void Foam::buildingElementFvPatchScalarField::updateLayerTemperatures()
 
 void Foam::buildingElementFvPatchScalarField::calculateHeatFluxes() const
 {
-    const scalarField Ti = this->patchInternalField();
     const scalar sigma = physicoChemical::sigma.value();
+    
+    // Get temperatures
+    const scalarField Ti = this->patchInternalField();
+    const scalarField& Tw = *this;  // Wall surface temperature
+    
+    // Get thermal diffusivity and calculate heat flux from OpenFOAM
+    const scalarField& deltaCoeffs = patch().deltaCoeffs();
+    scalarField kappa(patch().size());
+    
+    if (db().foundObject<volScalarField>("alphaEff"))
+    {
+        const fvPatchScalarField& alphaEff = 
+            patch().lookupPatchField<volScalarField, scalar>("alphaEff");
+        kappa = alphaEff;
+    }
+    else if (db().foundObject<volScalarField>("kappaEff"))
+    {
+        const fvPatchScalarField& kappaEff = 
+            patch().lookupPatchField<volScalarField, scalar>("kappaEff");
+        kappa = kappaEff;
+    }
+    else
+    {
+        // Default value for air
+        kappa = 0.026;
+    }
     
     // Get internal radiation if available
     if (radField_ != "none" && db().foundObject<volScalarField>(radField_))
     {
         const volScalarField& qr = db().lookupObject<volScalarField>(radField_);
-        // IMPORTANT: qr is already NET flux (incident - emitted) from OpenFOAM!
         qRadInt_ = qr.boundaryField()[patch().index()];
     }
     else
@@ -387,33 +421,68 @@ void Foam::buildingElementFvPatchScalarField::calculateHeatFluxes() const
     // Calculate heat fluxes for each face
     forAll(Ti, faceI)
     {
-        // Wall inner temperature (this BC value)
-        scalar Twall_int = this->operator[](faceI);
+        // OpenFOAM calculates the heat flux from cell to wall as:
+        // q = -k * dT/dn ≈ -k * (Tw - Ti) / delta
+        // This includes convection through the boundary layer
+        qConvInt_[faceI] = kappa[faceI] * deltaCoeffs[faceI] * (Ti[faceI] - Tw[faceI]);
         
-        // Outer surface temperature (simplified - in reality iterate)
-        scalar Twall_ext = tempExt_;
+        // Calculate wall properties
+        scalar R_total = 1.0 / uValue_;
+        scalar R_wall = R_total - Rsi_ - Rse_;  // Pure wall resistance
         
-        // Interior convection (simplified)
-        scalar hint = 8.0; // W/(m²K) typical for interior
-        qConvInt_[faceI] = hint * (Ti[faceI] - Twall_int);
+        // Heat flux from interior (calculated by OpenFOAM) - removed, not needed with new approach
+        
+        // For steady state, we need to solve for T_wall_ext such that:
+        // q_in = q_through_wall = q_out
+        // where q_out = h_ext*(T_wall_ext - T_ext) + radiation
+        
+        // First approximation: ignore radiation for T_wall_ext calculation
+        // q_in = (T_wall_int - T_wall_ext)/R_wall = h_ext*(T_wall_ext - T_ext)
+        // Solving for T_wall_ext:
+        scalar h_eff = 1.0/R_wall + hExt_;
+        scalar Twall_ext = (Tw[faceI]/R_wall + hExt_*tempExt_) / h_eff;
         
         // Conduction through wall
-        qCond_[faceI] = uValue_ * (Twall_int - tempExt_);
+        qCond_[faceI] = (Tw[faceI] - Twall_ext) / R_wall;
         
-        // Exterior convection
-        qConvExt_[faceI] = hExt_ * (Twall_ext - tempExt_);
+        // Exterior convection: positive when outside air is warmer than wall
+        qConvExt_[faceI] = hExt_ * (tempExt_ - Twall_ext);
         
-        // Exterior radiation - WE calculate the NET flux
+        // Exterior radiation: NET flux, positive when wall receives more than it emits
         scalar Trad_eff = viewSky_ * tempSky_ + (1 - viewSky_) * tempExt_;
-        qRadExt_[faceI] = emissivity_ * sigma * (pow4(Twall_ext) - pow4(Trad_eff));
+        qRadExt_[faceI] = emissivity_ * sigma * (pow4(Trad_eff) - pow4(Twall_ext));
         
-        // Solar gains
+        // Solar gains: always positive (heat into wall)
         qSolar_[faceI] = gValue_ * solarExt_;
         
-        // Total balance
-        // Note: qRadInt_ is already net (from OpenFOAM radiation model)
-        qTotal_[faceI] = qConvInt_[faceI] + qRadInt_[faceI] 
-                       - qCond_[faceI] - qRadExt_[faceI] + qSolar_[faceI];
+        // Energy balance check at INNER surface (should be ~0 in steady state)
+        // IN: q_conv_int + q_rad_int (from room)
+        // OUT: q_through_wall (to outside)
+        // 
+        // The heat flux through the wall that must be balanced is what the BC actually implements:
+        // From updateCoeffs(), the BC enforces: -k*dT/dn = h_eff*(T_wall - T_ref)
+        // Where T_ref = (U*T_ext + h_rad*T_rad + q_solar + q_rad_internal) / h_eff
+        // 
+        // So the actual heat flux from the room is:
+        // q_BC = h_eff*(T_wall - T_ref)
+        //      = h_eff*T_wall - (U*T_ext + h_rad*T_rad + q_solar + q_rad_internal)
+        //      = h_eff*T_wall - U*T_ext - h_rad*T_rad - q_solar - q_rad_internal
+        //      = (U + h_rad)*T_wall - U*T_ext - h_rad*T_rad - q_solar - q_rad_internal
+        //      = U*(T_wall - T_ext) + h_rad*(T_wall - T_rad) - q_solar - q_rad_internal
+        
+        // For validation, compute what the BC is actually doing:
+        scalar Trad_eff_local = viewSky_ * tempSky_ + (1 - viewSky_) * tempExt_;
+        scalar Tmean = 0.5 * (Tw[faceI] + Trad_eff_local);
+        scalar hrad_local = 4.0 * emissivity_ * sigma * pow3(Tmean);
+        scalar heff_local = uValue_ + hrad_local;
+        scalar Tref_local = (uValue_ * tempExt_ + hrad_local * Trad_eff_local + qSolar_[faceI] + qRadInt_[faceI]) / heff_local;
+        scalar q_BC = heff_local * (Tw[faceI] - Tref_local);
+        
+        // The balance should be between OpenFOAM's calculated flux and the BC flux
+        scalar balance_inner = qConvInt_[faceI] + qRadInt_[faceI] - q_BC;
+        
+        // For the boundary condition, we care about the balance at the inner surface
+        qTotal_[faceI] = balance_inner;
     }
 }
 
@@ -440,25 +509,44 @@ void Foam::buildingElementFvPatchScalarField::writeDebugInfo() const
             
         if (debugTemp_)
         {
+            // Get the cell temperature (not the patch internal field)
+            const fvPatchField<scalar>& Tp = *this;
+            const volScalarField& T = db().lookupObject<volScalarField>(internalField().name());
+            const labelUList& faceCells = patch().faceCells();
+            
             Info<< nl << "TEMPERATURES [C]:" << nl
-                << "  T_fluid:         " << Ti[i]-273.15 << nl
-                << "  T_wall_inner:    " << this->operator[](i)-273.15 << nl
+                << "  T_cell:          " << T[faceCells[i]]-273.15 << nl
+                << "  T_wall_inner:    " << Tp[i]-273.15 << nl
                 << "  T_external:      " << tempExt_-273.15 << nl
                 << "  T_sky:           " << tempSky_-273.15 << nl;
         }
             
         if (debugFlux_)
         {
-            Info<< nl << "HEAT FLUXES [W/m2] (positive = into wall):" << nl
-                << "  q_conv_int:      " << qConvInt_[i] << nl
-                << "  q_rad_int:       " << qRadInt_[i] 
+            // For validation: also show the simple U-value based heat flux
+            scalar q_validation = uValue_ * ((*this)[i] - tempExt_);
+            
+            Info<< nl << "HEAT FLUXES [W/m2]:" << nl
+                << "  Interior side:" << nl
+                << "    q_conv_int:    " << qConvInt_[i] 
+                << " (>0: room->wall)" << nl
+                << "    q_rad_int:     " << qRadInt_[i] 
                 << " (net from OpenFOAM)" << nl
-                << "  q_conduction:    " << qCond_[i] << nl
-                << "  q_conv_ext:      " << qConvExt_[i] << nl
-                << "  q_rad_ext:       " << qRadExt_[i] 
-                << " (net to sky/environ)" << nl
-                << "  q_solar:         " << qSolar_[i] << nl
-                << "  q_total:         " << qTotal_[i] << nl;
+                << "  Through wall:" << nl
+                << "    q_conduction:  " << qCond_[i] 
+                << " (>0: inside->outside)" << nl
+                << "    q_U-value:     " << q_validation
+                << " (U × ΔT for validation)" << nl
+                << "  Exterior side:" << nl
+                << "    q_conv_ext:    " << qConvExt_[i] 
+                << " (>0: air->wall)" << nl
+                << "    q_rad_ext:     " << qRadExt_[i] 
+                << " (>0: sky/env->wall)" << nl
+                << "    q_solar:       " << qSolar_[i] 
+                << " (>0: sun->wall)" << nl
+                << "  Balance:" << nl
+                << "    q_total:       " << qTotal_[i] 
+                << " (should be ~0 at steady state)" << nl;
         }
         
         Info<< "==========================================" << nl << endl;
@@ -517,10 +605,44 @@ void Foam::buildingElementFvPatchScalarField::updateCoeffs()
     writeDebugInfo();
     
     // Get thermal diffusivity at the boundary
-    const fvPatchScalarField& kappa = 
-        patch().lookupPatchField<volScalarField, scalar>("kappaEff");
+    // For compressible flows, we need to calculate kappa from thermo properties
+    scalarField kappa(patch().size());
     
-    // Solar gains
+    // Try different approaches depending on the solver
+    if (db().foundObject<volScalarField>("alphaEff"))
+    {
+        const fvPatchScalarField& alphaEff = 
+            patch().lookupPatchField<volScalarField, scalar>("alphaEff");
+        kappa = alphaEff;
+    }
+    else if (db().foundObject<volScalarField>("kappaEff"))
+    {
+        const fvPatchScalarField& kappaEff = 
+            patch().lookupPatchField<volScalarField, scalar>("kappaEff");
+        kappa = kappaEff;
+    }
+    else
+    {
+        // For buoyantSimpleFoam and similar solvers, calculate from thermo
+        // kappa = alpha * rho * Cp where alpha is thermal diffusivity
+        // But for the BC, we can use a simplified approach
+        
+        // Get a reference value for thermal conductivity of air
+        // k_air ≈ 0.026 W/(m·K) at room temperature
+        scalar k_air = 0.026;
+        
+        // Get the cell spacing normal to the wall (not needed with our approach)
+        
+        // For the Robin BC formulation, we need kappa/delta
+        // where kappa is thermal diffusivity (not conductivity)
+        // Using kappa ≈ k_air as approximation
+        kappa = k_air;
+        
+        Info<< "buildingElement BC: Using approximate thermal conductivity k = " 
+            << k_air << " W/(m·K)" << endl;
+    }
+    
+    // Solar gains (absorbed solar radiation)
     scalar qSolarGain = gValue_ * solarExt_;
     
     // Get internal radiation if available (ALREADY NET from OpenFOAM!)
@@ -531,27 +653,80 @@ void Foam::buildingElementFvPatchScalarField::updateCoeffs()
         qRadiation = qr.boundaryField()[patch().index()];
     }
     
-    // External radiation (we calculate ourselves)
+    // External radiation and convection
+    // The boundary condition formulation:
+    // -k*dT/dn = U*(T_wall - T_ref) + q_sources
+    // where q_sources includes solar gains and internal radiation
     const scalar sigma = physicoChemical::sigma.value();
-    scalarField qRadExternal(Ti.size());
+    
+    // Calculate boundary condition coefficients
+    const scalarField& deltaCoeffs = patch().deltaCoeffs();
+    
+    // Mixed boundary condition formulation:
+    // valueFraction*T + (1-valueFraction)*gradT = valueFraction*refValue + (1-valueFraction)*refGrad
+    //
+    // Our energy balance at the wall:
+    // -k*dT/dn = h_eff*(T_wall - T_ref) - q_sources
+    //
+    // Where:
+    // - h_eff includes U-value and radiation
+    // - T_ref is the effective external temperature
+    // - q_sources includes solar gains and internal radiation
+    
+    scalarField heff(Ti.size());
+    scalarField Tref(Ti.size());
+    
     forAll(Ti, faceI)
     {
         scalar Twall = this->operator[](faceI);
         scalar Trad_eff = viewSky_ * tempSky_ + (1 - viewSky_) * tempExt_;
-        qRadExternal[faceI] = emissivity_ * sigma * (pow4(Twall) - pow4(Trad_eff));
+        
+        // Linearized radiation coefficient
+        scalar Tmean = 0.5 * (Twall + Trad_eff);
+        scalar hrad = 4.0 * emissivity_ * sigma * pow3(Tmean);
+        
+        // Total heat transfer coefficient (U-value + radiation)
+        heff[faceI] = uValue_ + hrad;
+        
+        // Calculate reference temperature including all effects
+        // Energy balance at wall: -k*dT/dn = h_eff*(T_wall - T_ref)
+        // Where h_eff*(T_wall - T_ref) must equal all heat fluxes:
+        // h_eff*(T_wall - T_ref) = U*(T_wall - T_ext) + h_rad*(T_wall - T_rad) - q_solar - q_rad_internal
+        // 
+        // Note: h_rad*(T_wall - T_rad) is positive when wall is warmer than radiation temperature
+        // Note: q_solar is positive (heat gain), so we subtract it
+        // Note: q_rad_internal from OpenFOAM is already net flux (positive into wall)
+        //
+        // Solving for T_ref:
+        // h_eff*T_wall - h_eff*T_ref = U*T_wall - U*T_ext + h_rad*T_wall - h_rad*T_rad - q_solar - q_rad_internal
+        // h_eff*T_ref = h_eff*T_wall - U*T_wall + U*T_ext - h_rad*T_wall + h_rad*T_rad + q_solar + q_rad_internal
+        // h_eff*T_ref = T_wall*(h_eff - U - h_rad) + U*T_ext + h_rad*T_rad + q_solar + q_rad_internal
+        // 
+        // Since h_eff = U + h_rad:
+        // h_eff*T_ref = T_wall*0 + U*T_ext + h_rad*T_rad + q_solar + q_rad_internal
+        // 
+        // Therefore:
+        Tref[faceI] = (uValue_ * tempExt_ + hrad * Trad_eff + qSolarGain + qRadiation[faceI]) / heff[faceI];
     }
     
-    // Robin boundary condition coefficients
-    // k*dT/dn + alpha*T = beta
-    scalarField alpha = uValue_ / kappa;
-    scalarField beta = (uValue_*tempExt_ + qSolarGain + qRadiation - qRadExternal) / kappa;
-    //                                                     ↑              ↑
-    //                                              internal (net)   external (net)
-    
-    // Set boundary condition
-    refValue() = beta/alpha;
+    // Set boundary condition coefficients
+    valueFraction() = heff / (heff + kappa*deltaCoeffs);
+    refValue() = Tref;
     refGrad() = 0.0;
-    valueFraction() = alpha/(alpha + patch().deltaCoeffs());
+    
+    // Debug output for validation
+    if (debugTemp_ && Pstream::master())
+    {
+        Info<< "BuildingElement BC Debug (updateCoeffs):" << nl
+            << "  U-value: " << uValue_ << " W/(m²K)" << nl
+            << "  kappa[0]: " << kappa[0] << " W/(m·K)" << nl
+            << "  deltaCoeffs[0]: " << deltaCoeffs[0] << " 1/m" << nl
+            << "  heff[0]: " << heff[0] << " W/(m²K)" << nl
+            << "  valueFraction[0]: " << valueFraction()[0] << nl
+            << "  refValue[0]: " << refValue()[0] << " K (" << refValue()[0] - 273.15 << " °C)" << nl
+            << "  T_ext: " << tempExt_ << " K (" << tempExt_ - 273.15 << " °C)" << nl
+            << endl;
+    }
     
     mixedFvPatchScalarField::updateCoeffs();
 }
@@ -585,6 +760,8 @@ void Foam::buildingElementFvPatchScalarField::write(Ostream& os) const
     }
     
     os.writeEntry("gValue", gValue_);
+    os.writeEntry("Rsi", Rsi_);
+    os.writeEntry("Rse", Rse_);
     os.writeEntry("tempExt", tempExt_);
     os.writeEntry("tempSky", tempSky_);
     os.writeEntry("solarExt", solarExt_);

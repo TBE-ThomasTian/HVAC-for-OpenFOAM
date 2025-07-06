@@ -1,0 +1,109 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     buoyantSimpleFoam;
+
+startFrom       startTime;
+
+libs            ("libbuildingElementBC.so");
+
+startTime       0;
+
+stopAt          endTime;
+
+endTime         500;
+
+deltaT          1;
+
+writeControl    timeStep;
+
+writeInterval   100;
+
+purgeWrite      0;
+
+writeFormat     ascii;
+
+writePrecision  6;
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   6;
+
+runTimeModifiable true;
+
+functions
+{
+    heatSource
+    {
+        type            scalarSemiImplicitSource;
+        active          true;
+        selectionMode   all;
+        volumeMode      specific;  // per unit volume
+        
+        sources
+        {
+            h
+            {
+                explicit    50;   // 50 W/m³ = 3 kW total for 60m³ room
+                implicit    0;
+            }
+        }
+    }
+    
+    wallHeatFlux
+    {
+        type            wallHeatFlux;
+        libs            ("libfieldFunctionObjects.so");
+        executeControl  writeTime;
+        writeControl    timeStep;
+	writeInterval   10;
+        patches         (west east south north floor ceiling);
+    }
+    
+    roomHeatBalance
+    {
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        name		west;
+        log             true;
+        writeControl    timeStep;
+        writeInterval   10;
+        writeFields     false;
+        regionType      patch;
+        patches         (west east south north floor ceiling);
+        operation       sum;
+        fields          (wallHeatFlux);
+    }
+    
+    avgRoomTemp
+    {
+        type            volFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        log             true;
+        writeControl    timeStep;
+        writeInterval   10;
+        writeFields     false;
+        regionType      all;
+        operation       weightedAverage;
+        weightField     rho;
+        fields          (T);
+    }
+}
+
+// ************************************************************************* //

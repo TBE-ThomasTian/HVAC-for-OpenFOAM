@@ -1,0 +1,105 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// 3D Room: 4m x 5m x 3m
+convertToMeters 1;
+
+vertices
+(
+    // Floor level (z=0)
+    (0 0 0)    // 0
+    (4 0 0)    // 1
+    (4 5 0)    // 2
+    (0 5 0)    // 3
+    
+    // Ceiling level (z=3)
+    (0 0 3)    // 4
+    (4 0 3)    // 5
+    (4 5 3)    // 6
+    (0 5 3)    // 7
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (64 80 48) simpleGrading (1 1 1)
+);
+
+edges
+(
+);
+
+boundary
+(
+    west        // x=0, exterior wall
+    {
+        type wall;
+        faces
+        (
+            (0 4 7 3)
+        );
+    }
+    
+    east        // x=4, exterior wall
+    {
+        type wall;
+        faces
+        (
+            (1 2 6 5)
+        );
+    }
+    
+    south       // y=0, exterior wall with window
+    {
+        type wall;
+        faces
+        (
+            (0 1 5 4)
+        );
+    }
+    
+    north       // y=5, exterior wall
+    {
+        type wall;
+        faces
+        (
+            (3 7 6 2)
+        );
+    }
+    
+    floor       // z=0
+    {
+        type wall;
+        faces
+        (
+            (0 3 2 1)
+        );
+    }
+    
+    ceiling     // z=3
+    {
+        type wall;
+        faces
+        (
+            (4 5 6 7)
+        );
+    }
+);
+
+mergePatchPairs
+(
+);
+
+// ************************************************************************* //

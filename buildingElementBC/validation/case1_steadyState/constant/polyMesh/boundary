@@ -23,28 +23,28 @@ FoamFile
         type            wall;
         inGroups        1(wall);
         nFaces          160;
-        startFace       25360;
+        startFace       3030;
     }
     interior
     {
         type            wall;
         inGroups        1(wall);
         nFaces          160;
-        startFace       25520;
+        startFace       3190;
     }
     topAndBottom
     {
         type            wall;
         inGroups        1(wall);
-        nFaces          160;
-        startFace       25680;
+        nFaces          20;
+        startFace       3350;
     }
     frontAndBack
     {
         type            empty;
         inGroups        1(empty);
-        nFaces          25600;
-        startFace       25840;
+        nFaces          3200;
+        startFace       3370;
     }
 )
 

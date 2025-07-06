@@ -1,0 +1,153 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.OpenFOAM.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    object      T;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Wintertag: 
+// - Außentemperatur: -5°C (268 K)
+// - Himmel: -15°C (258 K)
+// - Zieltemperatur innen: 20°C (293 K)
+// - Heizleistung: 1000 W/m³
+
+dimensions      [0 0 0 1 0 0 0];
+
+internalField   uniform 293;
+
+boundaryField
+{
+    west  // Außenwand
+    {
+        type            buildingElement;
+        
+        // Gute Dämmung
+        uValue          0.28;        // W/(m²K) - EnEV Standard
+        
+        // Außenbedingungen
+        tempExt         268;         // -5°C
+        tempSky         258;         // -15°C  
+        solarExt        0;           // Nacht/bewölkt
+        
+        // Strahlung
+        emissivity      0.9;
+        viewSky         0.5;
+        radField        none;
+        
+        // Debug
+        debugTemp       true;
+        debugFlux       true;
+        debugFace       100;
+        debugInterval   50;
+        
+        value           uniform 290;
+    }
+    
+    east  // Außenwand
+    {
+        type            buildingElement;
+        
+        uValue          0.28;        // W/(m²K)
+        
+        tempExt         268;         // -5°C
+        tempSky         258;         // -15°C
+        solarExt        0;
+        
+        emissivity      0.9;
+        viewSky         0.5;
+        radField        none;
+        
+        value           uniform 290;
+    }
+    
+    south  // Außenwand mit Fenstern (effektiver U-Wert)
+    {
+        type            buildingElement;
+        
+        // Mischwert: 30% Fenster (U=1.3) + 70% Wand (U=0.28)
+        uValue          0.59;        // W/(m²K) - gewichteter Mittelwert
+        gValue          0.18;        // 30% × 0.6 (Fenster g-Wert)
+        
+        tempExt         268;         // -5°C
+        tempSky         258;         // -15°C
+        solarExt        100;         // Etwas diffuse Strahlung
+        
+        emissivity      0.9;
+        viewSky         0.7;         // Mehr Himmelssicht
+        radField        none;
+        
+        debugTemp       true;
+        debugFlux       true;
+        debugFace       50;
+        debugInterval   50;
+        
+        value           uniform 288;
+    }
+    
+    north  // Außenwand
+    {
+        type            buildingElement;
+        
+        uValue          0.28;        // W/(m²K)
+        
+        tempExt         268;         // -5°C
+        tempSky         258;         // -15°C
+        solarExt        0;           // Nordseite
+        
+        emissivity      0.9;
+        viewSky         0.5;
+        radField        none;
+        
+        value           uniform 290;
+    }
+    
+    floor  // Erdreich
+    {
+        type            buildingElement;
+        
+        uValue          0.35;        // W/(m²K) - Bodenplatte
+        
+        tempExt         283;         // 10°C Erdreich
+        tempSky         283;         // irrelevant
+        solarExt        0;
+        
+        emissivity      0;           // Keine Strahlung
+        viewSky         0;
+        radField        none;
+        
+        value           uniform 291;
+    }
+    
+    ceiling  // Dachboden
+    {
+        type            buildingElement;
+        
+        uValue          0.20;        // W/(m²K) - gut gedämmt
+        
+        tempExt         263;         // -10°C unbeheizter Dachboden
+        tempSky         263;         // irrelevant
+        solarExt        0;
+        
+        emissivity      0;           // Keine Strahlung
+        viewSky         0;
+        radField        none;
+        
+        debugTemp       true;
+        debugFlux       true;
+        debugFace       200;
+        debugInterval   50;
+        
+        value           uniform 291;
+    }
+}
+
+// ************************************************************************* //

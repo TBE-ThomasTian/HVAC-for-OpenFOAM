@@ -50,6 +50,8 @@ private:
         
         //- Common parameters
         scalar gValue_;             // Solar heat gain coefficient [-]
+        scalar Rsi_;                // Internal surface resistance [m²K/W] - INFO ONLY (OpenFOAM calculates interior heat transfer)
+        scalar Rse_;                // External surface resistance [m²K/W] - included in exterior calculation
         
         //- External boundary conditions
         scalar tempExt_;            // External air temperature [K]

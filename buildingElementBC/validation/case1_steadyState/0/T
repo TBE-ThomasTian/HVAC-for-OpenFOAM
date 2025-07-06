@@ -34,15 +34,16 @@ boundaryField
         // Simple U-value mode for validation
         uValue          1.0;         // W/(m²K) - reduced for stability
         gValue          0.0;         // No solar gains
+		Rse             0.04;        // m²K/W (optional, Standard: 0.04)
         
         // External conditions
-        tempExt         283;         // 10°C external temperature (less extreme)
-        tempSky         283;         // Same as air (no sky radiation effect)
+        tempExt         273;         // 0°C external temperature (less extreme)
+        tempSky         273;         // Same as air (no sky radiation effect)
         solarExt        0;           // No solar radiation
         hExt            10;          // Reduced external convection coefficient
         
         // Radiation properties
-        emissivity      0.9;
+        emissivity      0.0;         // No radiation for validation
         viewSky         0.0;         // No view to sky (eliminate sky radiation)
         radField        none;        // No internal radiation
         
