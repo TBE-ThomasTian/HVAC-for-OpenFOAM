@@ -1,3 +1,0 @@
-#!/bin/bash
-# Clean case
-rm -rf 0.* [1-9]* log.* postProcessing processor* constant/polyMesh *.png *.txt
