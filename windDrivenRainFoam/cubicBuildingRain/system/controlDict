@@ -1,0 +1,94 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     windDrivenRainFoam;
+
+startFrom       startTime;
+
+startTime       0;
+
+stopAt          endTime;
+
+endTime         300;  // 5 minutes simulation time
+
+deltaT          0.01;
+
+writeControl    adjustableRunTime;
+
+writeInterval   30;   // Write every 30 seconds
+
+purgeWrite      0;
+
+writeFormat     ascii;
+
+writePrecision  6;
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   6;
+
+runTimeModifiable true;
+
+adjustTimeStep  yes;
+
+maxCo           0.5;
+
+maxDeltaT       1;
+
+functions
+{
+    catchRatio
+    {
+        type            surfaces;
+        libs            ("libsampling.so");
+        writeControl    writeTime;
+        surfaceFormat   raw;
+        fields          (gcr scr1 scr2 scr3 scr4 scr5);
+        interpolationScheme cellPoint;
+        surfaces
+        (
+            buildingWindward
+            {
+                type        patch;
+                patches     (building);
+                // Extract only windward face (x = 0)
+                zone        "x = 0";
+            }
+        );
+    }
+    
+    probes
+    {
+        type            probes;
+        libs            ("libsampling.so");
+        writeControl    timeStep;
+        writeInterval   100;
+        fields          (U alpha1 alpha2 alpha3 alpha4 alpha5 gcr);
+        probeLocations
+        (
+            (-5 5 5)      // Upstream
+            (-0.5 5 5)    // Just before building
+            (10.5 5 5)    // Just after building
+            (15 5 5)      // Downstream
+            (5 -0.5 5)    // Beside building (south)
+            (5 10.5 5)    // Beside building (north)
+        );
+    }
+}
+
+// ************************************************************************* //

@@ -1,0 +1,38 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# =========                 |
+# \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+#  \\    /   O peration     | Version:  v2412
+#   \\  /    A nd           | Website:  www.openfoam.org
+#    \\/     M anipulation  |
+#------------------------------------------------------------------------------
+# Script to run wind-driven rain simulation using pre-computed wind field
+#------------------------------------------------------------------------------
+
+# Source OpenFOAM environment
+. $WM_PROJECT_DIR/bin/tools/RunFunctions
+
+# Check if wind case has been run
+if [ ! -d "../cubicBuildingWind/1000" ]; then
+    echo "Error: Wind case must be run first!"
+    echo "Please run ../cubicBuildingWind/Allrun before this script."
+    exit 1
+fi
+
+# Copy mesh from wind case
+cp -r ../cubicBuildingWind/constant/polyMesh constant/
+
+# Map wind field from steady-state solution
+runApplication mapFields ../cubicBuildingWind -sourceTime 1000 -targetRegion region0
+
+# Run wind-driven rain simulation
+runApplication windDrivenRainFoam
+
+# Extract catch ratio results
+if [ -f "extractCatchRatio.py" ]; then
+    python3 extractCatchRatio.py
+fi
+
+echo "Wind-driven rain simulation complete."
+
+#------------------------------------------------------------------------------

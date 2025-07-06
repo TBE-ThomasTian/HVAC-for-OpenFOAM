@@ -1,0 +1,113 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+scale   1;
+
+vertices
+(
+    // Bottom vertices
+    (-20 -20 0)   // 0
+    (30  -20 0)   // 1
+    (30  30  0)   // 2
+    (-20 30  0)   // 3
+    
+    // Top vertices
+    (-20 -20 30)  // 4
+    (30  -20 30)  // 5
+    (30  30  30)  // 6
+    (-20 30  30)  // 7
+    
+    // Building bottom
+    (0  0  0)     // 8
+    (10 0  0)     // 9
+    (10 10 0)     // 10
+    (0  10 0)     // 11
+    
+    // Building top
+    (0  0  10)    // 12
+    (10 0  10)    // 13
+    (10 10 10)    // 14
+    (0  10 10)    // 15
+);
+
+blocks
+(
+    // Main domain block (with hole for building)
+    hex (0 1 2 3 4 5 6 7) (40 40 30) simpleGrading (1 1 1)
+);
+
+edges
+(
+);
+
+boundary
+(
+    inlet
+    {
+        type patch;
+        faces
+        (
+            (0 3 7 4)
+        );
+    }
+    
+    outlet
+    {
+        type patch;
+        faces
+        (
+            (1 5 6 2)
+        );
+    }
+    
+    ground
+    {
+        type wall;
+        faces
+        (
+            (0 1 2 3)
+        );
+    }
+    
+    top
+    {
+        type patch;
+        faces
+        (
+            (4 7 6 5)
+        );
+    }
+    
+    sideY1
+    {
+        type symmetryPlane;
+        faces
+        (
+            (0 4 5 1)
+        );
+    }
+    
+    sideY2
+    {
+        type symmetryPlane;
+        faces
+        (
+            (3 2 6 7)
+        );
+    }
+);
+
+// ************************************************************************* //
