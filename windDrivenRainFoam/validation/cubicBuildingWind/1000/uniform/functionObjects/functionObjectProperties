@@ -1,0 +1,56 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2412                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    arch        "LSB;label=32;scalar=64";
+    class       dictionary;
+    location    "1000/uniform/functionObjects";
+    object      functionObjectProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+catchRatio
+{
+    p
+    {
+        file            "<case>/postProcessing/catchRatio/1000/p_buildingWindward.raw";
+    }
+    U
+    {
+        file            "<case>/postProcessing/catchRatio/1000/U_buildingWindward.raw";
+    }
+}
+
+cdf7e925f5746741c316f5fbcf39ad0dfca90775
+{
+    probes
+    {
+        scalar
+        {
+            average(p)      10.71035318805876;
+            min(p)          -12.20000850694576;
+            max(p)          50.50352651583208;
+        }
+        label
+        {
+            size(p)         5;
+            size(U)         5;
+        }
+        vector
+        {
+            average(U)      ( 3.12519 0.189383 0.08499139999999999 );
+            min(U)          ( -0.315779 -0.334052 -0.526154 );
+            max(U)          ( 9.854760000000001 1.63072 0.403764 );
+        }
+    }
+}
+
+
+// ************************************************************************* //
