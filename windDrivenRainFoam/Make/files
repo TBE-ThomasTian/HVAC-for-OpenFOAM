@@ -1,0 +1,5 @@
+windDrivenRainFoam.C
+boundaryConditions/windDrivenRainInletFvPatchVectorField.C
+boundaryConditions/catchRatioFvPatchScalarField.C
+
+EXE = $(FOAM_APPBIN)/windDrivenRainFoam
