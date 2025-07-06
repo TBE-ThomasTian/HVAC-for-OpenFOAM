@@ -1,0 +1,31 @@
+#!/bin/bash
+#------------------------------------------------------------------------------
+# =========                 |
+# \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+#  \\    /   O peration     | Version:  v2412
+#   \\  /    A nd           | Website:  www.openfoam.org
+#    \\/     M anipulation  |
+#------------------------------------------------------------------------------
+# Script to run steady-state wind flow simulation
+#------------------------------------------------------------------------------
+
+# Source OpenFOAM environment
+. $WM_PROJECT_DIR/bin/tools/RunFunctions
+
+# Create mesh
+runApplication blockMesh
+
+# Run steady-state wind flow
+runApplication simpleFoam
+
+# Copy wind field for rain simulation
+cp -r 0 0.wind
+cp -r $(foamListTimes -latestTime) 0
+
+# Clean up rain fields from wind simulation
+rm -rf 0/rain
+
+# Link rain fields for rain simulation
+ln -s 0.wind/rain 0/
+
+#------------------------------------------------------------------------------
