@@ -9,13 +9,13 @@ FoamFile
 
 dimensions      [0 0 0 1 0 0 0];
 
-internalField   uniform 299.15; // 26 C
+internalField   uniform 297.15; // 24 C
 
 boundaryField
 {
     walls
     {
         type            fixedValue;
-        value           uniform 299.15; // 26 C wall temperature
+        value           uniform 297.15; // 24 C wall temperature
     }
 }
