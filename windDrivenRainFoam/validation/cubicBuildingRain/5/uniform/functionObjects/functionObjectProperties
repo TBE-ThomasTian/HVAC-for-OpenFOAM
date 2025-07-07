@@ -1,0 +1,60 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2412                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    arch        "LSB;label=32;scalar=64";
+    class       dictionary;
+    location    "5/uniform/functionObjects";
+    object      functionObjectProperties;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+cdf7e925f5746741c316f5fbcf39ad0dfca90775
+{
+    probes
+    {
+        scalar
+        {
+            average(alpha1) 5.796486203828081e-05;
+            min(alpha1)     3.856815332735178e-08;
+            max(alpha1)     0.0001243465590695023;
+            average(alpha2) 6.722668794176328e-05;
+            min(alpha2)     2.670936620519303e-08;
+            max(alpha2)     0.0001516132873989186;
+            average(alpha3) 7.480389244925459e-05;
+            min(alpha3)     3.438162032211032e-08;
+            max(alpha3)     0.0001783737363485658;
+            average(alpha4) 7.594121883138907e-05;
+            min(alpha4)     5.16051062790252e-08;
+            max(alpha4)     0.0002080095051521654;
+            average(alpha5) 7.839021096233804e-05;
+            min(alpha5)     1.142810200201927e-07;
+            max(alpha5)     0.0002383619722906123;
+        }
+        label
+        {
+            size(alpha1)    6;
+            size(alpha2)    6;
+            size(alpha3)    6;
+            size(alpha4)    6;
+            size(alpha5)    6;
+            size(U)         6;
+        }
+        vector
+        {
+            average(U)      ( 1.41951 -0.113962 0.0599422 );
+            min(U)          ( -0.315779 -0.334052 -0.526154 );
+            max(U)          ( 5.8432 0.007933549999999999 0.403764 );
+        }
+    }
+}
+
+
+// ************************************************************************* //

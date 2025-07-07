@@ -1,0 +1,76 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2412                                 |
+|   \\  /    A nd           | Website:  www.openfoam.org                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvSchemes;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+ddtSchemes
+{
+    default         Euler;
+}
+
+gradSchemes
+{
+    default         Gauss linear;
+    grad(p)         Gauss linear;
+}
+
+divSchemes
+{
+    default         none;
+    
+    // Generic rain phase advection
+    div(phirain,alpharain)  Gauss vanLeer;
+    div(phirain,Urain)      Gauss limitedLinearV 1;
+    
+    // Rain phase advection - use limited schemes for stability
+    div(phi1,alpha1)    Gauss vanLeer;
+    div(phi2,alpha2)    Gauss vanLeer;
+    div(phi3,alpha3)    Gauss vanLeer;
+    div(phi4,alpha4)    Gauss vanLeer;
+    div(phi5,alpha5)    Gauss vanLeer;
+    
+    // Momentum equation for rain phases
+    div(phi,U)          Gauss limitedLinearV 1;
+    div(phi1,U1)        Gauss limitedLinearV 1;
+    div(phi2,U2)        Gauss limitedLinearV 1;
+    div(phi3,U3)        Gauss limitedLinearV 1;
+    div(phi4,U4)        Gauss limitedLinearV 1;
+    div(phi5,U5)        Gauss limitedLinearV 1;
+    
+    // Turbulence
+    div(phi,k)          Gauss limitedLinear 1;
+    div(phi,epsilon)    Gauss limitedLinear 1;
+    div(phi,omega)      Gauss limitedLinear 1;
+    div((nuEff*dev2(T(grad(U))))) Gauss linear;
+    
+    // Turbulent dispersion terms for rain phases
+    "div\(\(-nutrain\*T\(grad\(U.\)\)\)\)" Gauss linear;
+}
+
+laplacianSchemes
+{
+    default         Gauss linear corrected;
+}
+
+interpolationSchemes
+{
+    default         linear;
+}
+
+snGradSchemes
+{
+    default         corrected;
+}
+
+// ************************************************************************* //
