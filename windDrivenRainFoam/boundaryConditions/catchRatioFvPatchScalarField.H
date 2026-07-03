@@ -38,7 +38,7 @@ Description
 Usage
     \table
         Property     | Description                    | Required | Default
-        Rh          | Horizontal rainfall intensity  | yes      |
+        Rh          | Horizontal rainfall intensity [m/s] | no   | 0
         phi         | Flux field name               | no       | phi
     \endtable
 
@@ -47,7 +47,7 @@ Usage
     building_wall
     {
         type            catchRatio;
-        Rh              10;  // mm/h
+        Rh              [0 1 -1 0 0 0 0] 2.77777777778e-6;  // 10 mm/h
         value           uniform 0;
     }
     \endverbatim
@@ -77,8 +77,8 @@ class catchRatioFvPatchScalarField
 {
     // Private Data
 
-        //- Horizontal rainfall intensity [mm/h]
-        scalar Rh_;
+        //- Horizontal rainfall intensity [m/s]
+        dimensionedScalar Rh_;
 
         //- Name of flux field
         word phiName_;

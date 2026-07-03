@@ -24,8 +24,8 @@ nPhases         5;
 // Temperature [K]
 temp            293.15;  // 20°C
 
-// Reference horizontal rainfall intensity [mm/h]
-Rh              50;  // Heavy rain
+// Reference horizontal rainfall intensity [m/s, SI]
+Rh              [0 1 -1 0 0 0 0] 1.38888888889e-5;  // 50 mm/h converted to m/s
 
 // Wind field scaling factor
 Ustar           1.0;

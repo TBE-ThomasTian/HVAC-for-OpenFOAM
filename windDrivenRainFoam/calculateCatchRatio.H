@@ -38,7 +38,7 @@ for (int phase_no = 0; phase_no < phases.size(); phase_no++)
 				IOobject::NO_READ,
 				IOobject::NO_WRITE
 			),
-			(fvc::average(normalvel) * alpharain[phase_no]) * ((3600*1E3)/(Rh*phases[phase_no][1]))
+			(fvc::average(normalvel) * alpharain[phase_no])/(Rh*phases[phase_no][1])
 		)
 	);
 	scr[phase_no].write();

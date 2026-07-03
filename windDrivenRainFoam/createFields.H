@@ -11,7 +11,7 @@ IOdictionary transportProperties
 		IOobject::NO_WRITE
 	)
 );
-dimensionedScalar Rh("Rh", dimless, transportProperties);
+dimensionedScalar Rh("Rh", dimVelocity, transportProperties);
 dimensionedScalar temp("temp", dimTemperature, transportProperties);	
 dimensionedScalar rhoa
 (

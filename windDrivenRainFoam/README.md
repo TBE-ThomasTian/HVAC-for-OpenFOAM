@@ -82,7 +82,7 @@ phases
 );
 
 // Reference values
-Rh              10.0;    // Horizontal rainfall intensity [mm/h]
+Rh              [0 1 -1 0 0 0 0] 2.77777777778e-6;  // 10 mm/h in m/s
 temp            283.15;  // Temperature [K] (updated: use 'temp' not 'temperature')
 scalingFactor   1.0;     // Wind field scaling factor [-] (updated: use 'scalingFactor')
 
@@ -143,7 +143,7 @@ boundaryField
     building
     {
         type            catchRatio;
-        Rh              10;    // Must match transportProperties
+        Rh              [0 1 -1 0 0 0 0] 2.77777777778e-6;  // Must match transportProperties
         phi             phi1;  // Flux field name
         value           uniform 0;
     }

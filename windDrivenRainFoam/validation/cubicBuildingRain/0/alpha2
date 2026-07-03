@@ -54,7 +54,7 @@ boundaryField
     building
     {
         type            catchRatio;
-        Rh              50;
+        Rh              [0 1 -1 0 0 0 0] 1.38888888889e-5;
         phi             phi2;
         value           uniform 0;
     }

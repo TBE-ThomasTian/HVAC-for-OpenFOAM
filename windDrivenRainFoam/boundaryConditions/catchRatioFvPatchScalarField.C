@@ -40,7 +40,7 @@ Foam::catchRatioFvPatchScalarField::catchRatioFvPatchScalarField
 )
 :
     fixedValueFvPatchScalarField(p, iF),
-    Rh_(0),
+    Rh_("Rh", dimVelocity, 0.0),
     phiName_("phi")
 {}
 
@@ -67,9 +67,11 @@ Foam::catchRatioFvPatchScalarField::catchRatioFvPatchScalarField
 )
 :
     fixedValueFvPatchScalarField(p, iF, dict),
-    Rh_(dict.get<scalar>("Rh")),
+    Rh_("Rh", dimVelocity, 0.0),
     phiName_(dict.lookupOrDefault<word>("phi", "phi"))
 {
+    Rh_.readIfPresent(dict);
+
     if (!dict.found("value"))
     {
         updateCoeffs();
@@ -118,10 +120,8 @@ void Foam::catchRatioFvPatchScalarField::updateCoeffs()
     // Get patch areas
     const scalarField& magSf = patch().magSf();
     
-    // Calculate catch ratio
-    // CR = rain_flux / (Rh * area)
-    // Convert Rh from mm/h to m/s: mm/h * 1e-3 / 3600
-    scalar RhSI = Rh_ * 1e-3 / 3600.0;
+    // Calculate catch ratio: CR = rain_flux / (Rh * area)
+    const scalar RhSI = Rh_.value();
     
     if (RhSI > SMALL)
     {
@@ -140,7 +140,7 @@ void Foam::catchRatioFvPatchScalarField::updateCoeffs()
 void Foam::catchRatioFvPatchScalarField::write(Ostream& os) const
 {
     fvPatchScalarField::write(os);
-    os.writeEntry("Rh", Rh_);
+    Rh_.writeEntry("Rh", os);
     os.writeEntryIfDifferent<word>("phi", "phi", phiName_);
     writeEntry("value", os);
 }

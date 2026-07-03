@@ -343,7 +343,7 @@ void Foam::rainPhase::calculateCatchRatio(const dimensionedScalar& Rh)
     );
     const surfaceScalarField& normalvel = tnormalvel();
     
-    scr_ = (fvc::average(normalvel) * alpharain_) * ((3600*1E3)/(Rh*volumeFraction_));
+    scr_ = (fvc::average(normalvel) * alpharain_)/(Rh*volumeFraction_);
 }
 
 
