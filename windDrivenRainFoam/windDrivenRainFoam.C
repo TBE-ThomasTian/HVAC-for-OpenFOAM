@@ -51,9 +51,19 @@ int main(int argc, char *argv[])
 
     simpleControl simple(mesh);
     
-    // Read adaptive time step controls
-    bool adjustTimeStep = runTime.controlDict().lookupOrDefault("adjustTimeStep", false);
-    scalar maxCoRain = runTime.controlDict().lookupOrDefault<scalar>("maxCoRain", 0.5);
+    // Rain time-step control is opt-in to preserve the original pseudo-transient behaviour.
+    const bool globalAdjustTimeStep =
+        runTime.controlDict().lookupOrDefault("adjustTimeStep", false);
+    bool adjustTimeStep = runTime.controlDict().lookupOrDefault
+    (
+        "adjustRainTimeStep",
+        globalAdjustTimeStep && runTime.controlDict().found("maxCoRain")
+    );
+    scalar maxCoRain = runTime.controlDict().lookupOrDefault<scalar>
+    (
+        "maxCoRain",
+        runTime.controlDict().lookupOrDefault<scalar>("maxCo", 0.5)
+    );
     scalar maxDeltaT = runTime.controlDict().lookupOrDefault<scalar>("maxDeltaT", GREAT);
 
     // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //

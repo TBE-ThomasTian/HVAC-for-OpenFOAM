@@ -70,7 +70,25 @@ Foam::catchRatioFvPatchScalarField::catchRatioFvPatchScalarField
     Rh_("Rh", dimVelocity, 0.0),
     phiName_(dict.lookupOrDefault<word>("phi", "phi"))
 {
-    Rh_.readIfPresent(dict);
+    if (dict.found("Rh"))
+    {
+        dimensionedScalar inputRh(dict.lookup("Rh"));
+
+        if (inputRh.dimensions() == dimless)
+        {
+            Rh_ = dimensionedScalar("Rh", dimVelocity, inputRh.value()/(3600.0*1000.0));
+        }
+        else if (inputRh.dimensions() == dimVelocity)
+        {
+            Rh_ = inputRh;
+        }
+        else
+        {
+            FatalIOErrorInFunction(dict)
+                << "Rh must be either dimensionless in mm/h or have velocity dimensions [0 1 -1 0 0 0 0]"
+                << exit(FatalIOError);
+        }
+    }
 
     if (!dict.found("value"))
     {

@@ -11,8 +11,35 @@ IOdictionary transportProperties
 		IOobject::NO_WRITE
 	)
 );
-dimensionedScalar Rh("Rh", dimVelocity, transportProperties);
-dimensionedScalar temp("temp", dimTemperature, transportProperties);	
+dimensionedScalar Rh(transportProperties.lookup("Rh"));
+if (Rh.dimensions() == dimless)
+{
+	Info<< "Interpreting dimensionless Rh as mm/h and converting to m/s" << endl;
+	Rh = dimensionedScalar("Rh", dimVelocity, Rh.value()/(3600.0*1000.0));
+}
+else if (Rh.dimensions() != dimVelocity)
+{
+	FatalIOErrorInFunction(transportProperties)
+		<< "Rh must be either dimensionless in mm/h or have velocity dimensions [0 1 -1 0 0 0 0]"
+		<< exit(FatalIOError);
+}
+
+word tempName("temp");
+if (!transportProperties.found(tempName) && transportProperties.found("temperature"))
+{
+	tempName = "temperature";
+}
+dimensionedScalar temp(transportProperties.lookup(tempName));
+if (temp.dimensions() == dimless)
+{
+	temp = dimensionedScalar("temp", dimTemperature, temp.value());
+}
+else if (temp.dimensions() != dimTemperature)
+{
+	FatalIOErrorInFunction(transportProperties)
+		<< tempName << " must be either dimensionless in K or have temperature dimensions"
+		<< exit(FatalIOError);
+}
 dimensionedScalar rhoa
 (
 	"rhoa",
@@ -33,9 +60,21 @@ dimensionedScalar mua
 );
 scalar scalingFactor
 (
-	transportProperties.lookupOrDefault<scalar>("scalingFactor", 1.0)
+	transportProperties.lookupOrDefault<scalar>
+	(
+		"scalingFactor",
+		transportProperties.lookupOrDefault<scalar>
+		(
+			"Ustar",
+			transportProperties.lookupOrDefault<scalar>("windScaling", 1.0)
+		)
+	)
 );
-const bool solveTD = transportProperties.lookupOrDefault("solveTD", false);	
+const bool solveTD = transportProperties.lookupOrDefault
+(
+	"solveTD",
+	transportProperties.lookupOrDefault("turbulentDispersion", false)
+);	
 List<List<scalar> > phases
 (
 transportProperties.lookup("phases")
@@ -55,21 +94,6 @@ volVectorField U
 	mesh
 );
 U = U*scalingFactor;
-
-// Create phi for atmBoundaryLayerInletVelocity BC
-surfaceScalarField phi
-(
-	IOobject
-	(
-		"phi",
-		runTime.timeName(),
-		mesh,
-		IOobject::NO_READ,
-		IOobject::NO_WRITE
-	),
-	linearInterpolate(U) & mesh.Sf()
-);
-
 U.correctBoundaryConditions();
 
 surfaceScalarField phiwind
