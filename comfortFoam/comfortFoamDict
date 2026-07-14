@@ -16,13 +16,48 @@ FoamFile
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-// Thermal comfort parameters according to ISO 7730
+// Thermal comfort parameters according to ISO 7730:2025
 // 1 met = 58.15 W/m²
 
 clo     0.3;    // Clothing insulation [clo]
 met     1.2;    // Metabolic rate [met]
 wme     0;      // External work [met] (usually 0)
 RH      50;     // Default relative humidity [%] (used if no humidity field available)
+
+// Body-motion and clothing correction. Exactly one of applyDynamicClothing and
+// clothingAlreadyResultant must be true for ISO-valid clothing input.
+applyDynamicClothing       true;
+
+// Walking speed [m/s]. A non-negative value is used explicitly (max 1.2 m/s).
+// -1 derives walking speed from met only when applyDynamicClothing is true;
+// otherwise it means zero walking speed.
+walkingSpeed               -1;
+
+// true if clo already is resultant/dynamic clothing insulation I_cl,r.
+// This prevents a second clothing correction.
+clothingAlreadyResultant   false;
+
+// Final relative air velocity v_ar [m/s]. A non-negative value is a constant
+// override and already includes person motion; walkingSpeed is not added.
+// -1 derives v_ar from |U| plus walking speed. A volScalarField named
+// relativeAirVelocity overrides this value cell by cell.
+relativeAirVelocity        -1;
+
+// Optional direct water-vapour partial pressure [Pa]. A same-named
+// volScalarField has priority. -1 calculates the pressure from relative humidity.
+waterVapourPressure        -1;
+
+// Optional ISO 7730:2025 Annex A local-discomfort inputs.
+// A negative value means that the criterion is unavailable. An optional
+// volScalarField with the same name overrides the dictionary value cell by cell.
+// Absolute volScalarField temperatures use K; the scalar floorTemperature below
+// uses degrees C. Temperature differences use K in both forms.
+verticalAirTemperatureDifference  -1;  // 1.1 m to 0.1 m difference [K]
+floorTemperature                  -1;  // Floor surface temperature [degrees C]
+radiantTemperatureAsymmetry       -1;  // Radiant-temperature asymmetry [K]
+
+// One of: warmCeiling, coolWall, coolCeiling, warmWall
+radiantAsymmetryType              warmCeiling;
 
 // Optional analysis region selection (choose only one):
 // cellSet    occupiedZone;

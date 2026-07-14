@@ -1,0 +1,72 @@
+#!/bin/sh
+# Run the built-in ISO 7730:2025 Annex D regression suite.
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
+case_dir="$script_dir/uniformCase"
+
+if [ ! -f "$case_dir/system/controlDict" ]; then
+    printf '%s\n' \
+        "Error: validation case not found: $case_dir" >&2
+    exit 2
+fi
+
+resolve_executable()
+{
+    candidate=$1
+
+    case "$candidate" in
+        */*)
+            if [ ! -x "$candidate" ]; then
+                return 1
+            fi
+
+            candidate_dir=$(CDPATH= cd -- "$(dirname -- "$candidate")" && pwd) \
+                || return 1
+            printf '%s/%s\n' "$candidate_dir" "$(basename -- "$candidate")"
+            ;;
+        *)
+            command -v "$candidate" 2>/dev/null
+            ;;
+    esac
+}
+
+comfort_foam=
+
+if [ -n "${COMFORTFOAM_EXECUTABLE:-}" ]; then
+    comfort_foam=$(resolve_executable "$COMFORTFOAM_EXECUTABLE") || {
+        printf '%s\n' \
+            "Error: COMFORTFOAM_EXECUTABLE is not executable: $COMFORTFOAM_EXECUTABLE" >&2
+        exit 127
+    }
+elif comfort_foam=$(command -v comfortFoam 2>/dev/null); then
+    :
+elif [ -n "${FOAM_USER_APPBIN:-}" ] \
+    && [ -x "$FOAM_USER_APPBIN/comfortFoam" ]; then
+    comfort_foam="$FOAM_USER_APPBIN/comfortFoam"
+elif [ -n "${FOAM_APPBIN:-}" ] \
+    && [ -x "$FOAM_APPBIN/comfortFoam" ]; then
+    comfort_foam="$FOAM_APPBIN/comfortFoam"
+else
+    printf '%s\n' \
+        "Error: comfortFoam was not found." \
+        "Build it with wmake and source the matching OpenFOAM environment," \
+        "or set COMFORTFOAM_EXECUTABLE to the utility path." >&2
+    exit 127
+fi
+
+printf '%s\n' "Running the ISO 7730:2025 Annex D regression suite..."
+
+(
+    cd "$case_dir" || exit 1
+    "$comfort_foam" -validate
+)
+status=$?
+
+if [ "$status" -eq 0 ]; then
+    printf '%s\n' "comfortFoam regression suite passed."
+else
+    printf '%s\n' \
+        "comfortFoam regression suite failed with exit status $status." >&2
+fi
+
+exit "$status"

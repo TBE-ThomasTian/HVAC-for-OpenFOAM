@@ -12,13 +12,13 @@ FoamFile
     arch        "LSB;label=32;scalar=64";
     class       volScalarField;
     location    "0";
-    object      PPD;
+    object      ISO7730Category;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 dimensions      [0 0 0 0 0 0 0];
 
-internalField   uniform 21.101;
+internalField   uniform 4;
 
 boundaryField
 {

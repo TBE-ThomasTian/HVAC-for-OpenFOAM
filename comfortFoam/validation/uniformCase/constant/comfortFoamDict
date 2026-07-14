@@ -16,12 +16,27 @@ FoamFile
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-// Thermal comfort parameters according to ISO 7730
+// Thermal comfort parameters according to ISO 7730:2025
 // 1 met = 58.15 W/m²
 
 clo     0.5;    // Clothing insulation [clo]
 met     1.6;    // Metabolic rate [met]
 wme     0;      // External work [met] (usually 0)
 RH      60;     // Default relative humidity [%] (used if no humidity field available)
+
+// Apply the ISO 7730:2025 / ISO 9920 dynamic clothing correction.
+applyDynamicClothing       true;
+walkingSpeed               -1;     // [m/s]; -1 = derive from met when enabled
+clothingAlreadyResultant   false;
+relativeAirVelocity        -1;     // Final v_ar [m/s]; -1 = derive from U and motion
+waterVapourPressure        -1;     // [Pa]; -1 = calculate from RH
+
+// Optional Annex A local-discomfort inputs. Negative values mean unavailable.
+// Same-named volScalarFields override these values cell by cell. An optional
+// floorTemperature field is absolute K; the scalar below is degrees C.
+verticalAirTemperatureDifference  -1;  // [K]
+floorTemperature                  -1;  // [degrees C]
+radiantTemperatureAsymmetry       -1;  // [K]
+radiantAsymmetryType              warmCeiling;
 
 // ************************************************************************* //

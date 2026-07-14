@@ -26,11 +26,15 @@ Application
     comfortFoam
 
 Description
-    This tool calculates thermal comfort parameters according to DIN EN ISO 7730:
-    - PMV (Predicted Mean Vote), Range: -3 (cold) to 3 (hot)
+    This tool calculates thermal comfort parameters according to
+    ISO 7730:2025 and DIN EN ISO 7730:2025-12:
+    - PMV (Predicted Mean Vote), model applicability: -2 to +2
     - PPD (Predicted Percentage of Dissatisfied), Range: 0 to 100%
     - DR  (Draught Rating), Range: 0 to 100%
     - TOp (Operative Temperature)
+    - Local discomfort due to vertical temperature difference, floor
+      temperature and radiant temperature asymmetry when inputs are available
+    - ISO 7730 whole-body and overall categories
     - Mean radiant temperature
     - Turbulent intensity %
 
@@ -48,6 +52,7 @@ Description
     - Default constant value if no field available
     
     Supported radiation fields (in order of preference):
+    - MRT: Mean radiant temperature (K)
     - G: Incident radiation field (W/m^2) from radiation models
     - qr: Radiative heat flux field (W/m^2) from some radiation models
     - IDefault: Default radiation intensity (W/m^2/sr) from DOM models
@@ -60,7 +65,7 @@ Description
     comfortFoam -cellZone roomA           # Analyze only specified cellZone
 
 Background
-    DIN EN ISO 7730
+    ISO 7730:2025; DIN EN ISO 7730:2025-12
 
 Authors
     Thomas Tian
@@ -68,7 +73,7 @@ Authors
     Manuel Scheu
 
 Version
-    3.3
+    5.0
 
 \*---------------------------------------------------------------------------*/
 
@@ -92,6 +97,8 @@ namespace Foam
         // Physical constants
         const scalar stefanBoltzmannConstant = 5.67e-8;  // W/(m^2*K^4)
         const scalar baseMetabolicRate = 58.15;          // W/m^2
+        const scalar physicalKelvinOffset = 273.15;      // K at 0 degrees C
+        const scalar isoTemperatureOffset = 273.0;       // Annex D program
         
         // Heat loss coefficients (from ISO 7730)
         const scalar skinDiffusionCoeff = 3.05e-3;
@@ -139,16 +146,40 @@ namespace Foam
         const scalar opTempFactor3 = 0.7;  // v > 0.6 m/s
         const scalar velThreshold1 = 0.2;  // m/s
         const scalar velThreshold2 = 0.6;  // m/s
+
+        // ISO 7730 PMV applicability limits
+        const scalar minAirTemperature = 10.0;       // degrees C
+        const scalar maxAirTemperature = 30.0;       // degrees C
+        const scalar minRadiantTemperature = 10.0;   // degrees C
+        const scalar maxRadiantTemperature = 40.0;   // degrees C
+        const scalar minRelativeAirVelocity = 0.0;   // m/s
+        const scalar maxRelativeAirVelocity = 1.0;   // m/s
+        const scalar minWaterVapourPressure = 0.0;   // Pa
+        const scalar maxWaterVapourPressure = 2700.0;// Pa
+        const scalar minApplicablePMV = -2.0;
+        const scalar maxApplicablePMV = 2.0;
+
+        // ISO 7730 draught-model applicability limits
+        const scalar minDraftTemperature = 20.0;     // degrees C
+        const scalar maxDraftTemperature = 26.0;     // degrees C
+        const scalar maxDraftVelocity = 0.5;         // m/s, exclusive
+        const scalar minDraftTurbulence = 10.0;      // percent
+        const scalar maxDraftTurbulence = 60.0;      // percent
+
+        // ISO 9920 / ISO 7730 Annex C dynamic-clothing constants
+        const scalar boundaryAirLayerInsulation = 0.111; // m2*K/W
     }
 
 // * * * * * * * * * * * * * * * Enums * * * * * * * * * * * * * * * * * * //
 
 enum class ComfortCategory
 {
-    A,  // High comfort
-    B,  // Medium comfort  
-    C,  // Moderate comfort
-    None // No category
+    Incomplete = -1,
+    None = 0,
+    I = 1,
+    II = 2,
+    III = 3,
+    IV = 4
 };
 
 enum class AnalysisRegionType
@@ -158,16 +189,24 @@ enum class AnalysisRegionType
     CellZone
 };
 
-// Convert comfort category to string
-Foam::word comfortCategoryToString(ComfortCategory category)
+// Convert comfort category to an English description.
+const char* comfortCategoryToString(ComfortCategory category)
 {
     switch (category)
     {
-        case ComfortCategory::A: return "Category A (High comfort)";
-        case ComfortCategory::B: return "Category B (Medium comfort)";
-        case ComfortCategory::C: return "Category C (Moderate comfort)";
-        default: return "No category (Poor comfort)";
+        case ComfortCategory::I: return "Category I";
+        case ComfortCategory::II: return "Category II";
+        case ComfortCategory::III: return "Category III";
+        case ComfortCategory::IV: return "Category IV";
+        case ComfortCategory::Incomplete:
+            return "Not determined (local-discomfort input missing)";
+        default: return "No category";
     }
+}
+
+Foam::scalar comfortCategoryValue(ComfortCategory category)
+{
+    return static_cast<label>(category);
 }
 
 // Calculate volume-weighted averages for specific cells
@@ -183,7 +222,7 @@ void calculateVolumeWeightedAverages
     const volVectorField& U = mesh.lookupObject<volVectorField>("U");
     const volScalarField& T = mesh.lookupObject<volScalarField>("T");
     
-    vector weightedVelocity(Zero);
+    scalar weightedVelocityMagnitude(0);
     scalar weightedTemperature(0);
     totalVolume = 0;
     
@@ -192,17 +231,17 @@ void calculateVolumeWeightedAverages
         label cellI = cellsToAnalyze[i];
         scalar cellVolume = mesh.V()[cellI];
         
-        weightedVelocity += U[cellI] * cellVolume;
+        weightedVelocityMagnitude += mag(U[cellI]) * cellVolume;
         weightedTemperature += T[cellI] * cellVolume;
         totalVolume += cellVolume;
     }
     
     // Reduce for parallel operation
-    reduce(weightedVelocity, sumOp<vector>());
+    reduce(weightedVelocityMagnitude, sumOp<scalar>());
     reduce(weightedTemperature, sumOp<scalar>());
     reduce(totalVolume, sumOp<scalar>());
     
-    avgVelocity = mag(weightedVelocity / totalVolume);
+    avgVelocity = weightedVelocityMagnitude / totalVolume;
     avgTemperature = weightedTemperature / totalVolume;
 }
 }
@@ -273,7 +312,9 @@ Foam::scalar calculateAverageTemperature(const fvMesh& mesh)
     return avgT / totalVolume;
 }
 
-// Calculate area-weighted radiation temperature from wall surfaces
+// Approximate mean radiant temperature from wall temperatures. This fallback
+// uses fourth-power area weighting. A measured or view-factor-based MRT field
+// is preferred because this approximation is not occupant-directional.
 Foam::scalar calculateRadiationTemperature
 (
     const fvMesh& mesh,
@@ -281,7 +322,7 @@ Foam::scalar calculateRadiationTemperature
 )
 {
     const volScalarField& T = mesh.lookupObject<volScalarField>("T");
-    scalar weightedTemp(0);
+    scalar weightedTemperature4(0);
     scalar totalArea(0);
 
     forAll(patches, patchI)
@@ -294,10 +335,10 @@ Foam::scalar calculateRadiationTemperature
 
             if (patchArea > SMALL)
             {
-                weightedTemp += gSum
+                weightedTemperature4 += gSum
                 (
                     mesh.magSf().boundaryField()[curPatch]
-                  * T.boundaryField()[curPatch]
+                  * Foam::pow(T.boundaryField()[curPatch], 4)
                 );
 
                 totalArea += patchArea;
@@ -305,87 +346,276 @@ Foam::scalar calculateRadiationTemperature
         }
     }
 
-    return (weightedTemp / totalArea) - 273.0;  // Convert to Celsius (ISO 7730 uses 273.0)
+    if (totalArea <= SMALL)
+    {
+        WarningInFunction
+            << "No wall area is available for the MRT fallback. "
+            << "Using the volume-average air temperature." << endl;
+        return
+            gAverage(T.internalField())
+          - ComfortConstants::physicalKelvinOffset;
+    }
+
+    return
+        Foam::pow(weightedTemperature4/totalArea, 0.25)
+      - ComfortConstants::physicalKelvinOffset;
 }
 
-// Calculate water vapour pressure
-Foam::scalar calculateWaterVapourPressure(scalar temperature, scalar relativeHumidity)
+// Calculate saturation water-vapour pressure term used by Annex D.
+Foam::scalar calculateSaturationPressureTerm(scalar airTemperatureC)
 {
-    // Temperature should be in Kelvin, convert to Celsius for the formula
-    // Note: Use 273.0 to match ISO 7730/C# implementation
-    scalar tempCelsius = temperature - 273.0;
-    return relativeHumidity * 10.0 
-         * Foam::exp(16.6536 - (4030.183 / (tempCelsius + 235.0)));
+    return Foam::exp(16.6536 - (4030.183/(airTemperatureC + 235.0)));
 }
 
-// Calculate turbulent intensity
-Foam::scalar calculateTurbulentIntensity
+// Calculate water-vapour partial pressure [Pa] from RH [%].
+Foam::scalar calculateWaterVapourPressure
 (
-    scalar velocity,
-    scalar k,  // turbulent kinetic energy
-    scalar epsilon,  // turbulent dissipation rate
-    scalar omega,    // specific dissipation rate
-    const word& turbulenceModel
+    scalar airTemperatureC,
+    scalar relativeHumidity
 )
 {
-    if (velocity > SMALL)
+    return
+        relativeHumidity
+       *10.0
+       *calculateSaturationPressureTerm(airTemperatureC);
+}
+
+// Calculate RH [%] for reporting when water-vapour pressure is supplied.
+Foam::scalar calculateRelativeHumidity
+(
+    scalar airTemperatureC,
+    scalar vapourPressure
+)
+{
+    const scalar denominator =
+        10.0*calculateSaturationPressureTerm(airTemperatureC);
+    return denominator > SMALL ? 100.0*vapourPressure/denominator : 0.0;
+}
+
+// Calculate turbulence intensity as a fraction (0.4 means 40 percent).
+Foam::scalar calculateTurbulentIntensityFraction
+(
+    scalar velocity,
+    scalar k,
+    bool turbulenceAvailable
+)
+{
+    if (turbulenceAvailable && velocity > SMALL)
     {
-        if (turbulenceModel == "k-epsilon" || turbulenceModel == "k-omega" || turbulenceModel == "k-only")
-        {
-            // Standard formula: Tu = sqrt(2/3 * k) / U
-            return Foam::sqrt(2.0/3.0 * k) / velocity;
-        }
-        else
-        {
-            // Default assumption for mixed convection
-            return 0.4;  // 40%
-        }
+        return Foam::sqrt((2.0/3.0)*Foam::max(k, 0.0))/velocity;
     }
-    return 0.4;  // Default 40% for zero velocity
+    return 0.4;
 }
 
 // Calculate draught rating (DR)
 Foam::scalar calculateDraughtRating
 (
-    scalar temperature,
+    scalar airTemperatureC,
     scalar velocity,
-    scalar turbulentIntensity
+    scalar turbulentIntensityFraction
 )
 {
     using namespace ComfortConstants;
     
-    if (velocity >= draftVelThreshold)
+    const scalar modelVelocity = Foam::max(velocity, draftVelThreshold);
+    const scalar turbulentIntensityPercent =
+        100.0*turbulentIntensityFraction;
+
+    const scalar dr = (draftBaseTemp - airTemperatureC)
+                    * Foam::pow(modelVelocity - draftVelThreshold, draftVelExp)
+                    *
+                      (
+                          draftTurbCoeff*modelVelocity
+                         *turbulentIntensityPercent
+                        + draftConstant
+                      );
+
+    return Foam::max(0.0, Foam::min(100.0, dr));
+}
+
+bool isDraughtModelApplicable
+(
+    scalar airTemperatureC,
+    scalar velocity,
+    scalar turbulentIntensityFraction,
+    scalar met
+)
+{
+    using namespace ComfortConstants;
+
+    const scalar turbulencePercent = 100.0*turbulentIntensityFraction;
+
+    return
+        airTemperatureC >= minDraftTemperature
+     && airTemperatureC <= maxDraftTemperature
+     && velocity < maxDraftVelocity
+     && turbulencePercent >= minDraftTurbulence
+     && turbulencePercent <= maxDraftTurbulence
+     && met <= 1.2;
+}
+
+Foam::scalar calculateClothingAreaFactor(scalar insulationSI)
+{
+    using namespace ComfortConstants;
+
+    return insulationSI <= clothingThreshold
+        ? 1.0 + clothingFactor1*insulationSI
+        : clothingFactor2 + clothingFactor3*insulationSI;
+}
+
+Foam::scalar calculateInitialClothingSurfaceTemperature
+(
+    scalar airTemp,
+    scalar airTempC,
+    scalar insulationSI
+)
+{
+    // ISO 7730:2025 Annex D, BASIC line 250.
+    return airTemp
+         + (35.5 - airTempC)/(3.5*(6.45*insulationSI + 0.1));
+}
+
+Foam::scalar calculateWalkingSpeed
+(
+    scalar metabolicRate,
+    scalar configuredWalkingSpeed
+)
+{
+    if (configuredWalkingSpeed >= 0.0)
     {
-        scalar dr = (draftBaseTemp - (temperature - 273.0))
-                  * Foam::pow(velocity - draftVelThreshold, draftVelExp)
-                  * ((draftTurbCoeff * velocity * turbulentIntensity) + draftConstant);
-        
-        return Foam::max(0.0, Foam::min(100.0, dr));
+        return Foam::min(configuredWalkingSpeed, 1.2);
     }
-    
-    return 0.0;
+
+    // ISO 7730:2025 Annex C / ISO 9920 activity-based estimate.
+    return Foam::min
+    (
+        0.7,
+        Foam::max(0.0, 0.0052*(metabolicRate - 58.0))
+    );
+}
+
+Foam::scalar calculateResultantClothingInsulation
+(
+    scalar staticClothingInsulation,
+    scalar relativeAirVelocity,
+    scalar walkingSpeed,
+    bool& correctionApplicable
+)
+{
+    using namespace ComfortConstants;
+
+    correctionApplicable =
+        staticClothingInsulation >= 0.0
+     && staticClothingInsulation < 1.4;
+
+    if (!correctionApplicable)
+    {
+        return staticClothingInsulation;
+    }
+
+    const scalar limitedVelocity =
+        Foam::min(Foam::max(relativeAirVelocity, 0.15), 3.5);
+    const scalar limitedWalkingSpeed =
+        Foam::min(Foam::max(walkingSpeed, 0.0), 1.2);
+    const scalar velocityOffset = limitedVelocity - 0.15;
+
+    // ISO 9920:2007, equations 32 and 33. The 0.044 coefficient is
+    // intentional. The 0.44 value in ISO 7730 Annex C is an apparent
+    // typographical discrepancy that suppresses the expected wind correction.
+    const scalar correctionTotal = Foam::min
+    (
+        1.0,
+        Foam::exp
+        (
+            -0.281*velocityOffset
+          + 0.044*Foam::sqr(velocityOffset)
+          - 0.492*limitedWalkingSpeed
+          + 0.176*Foam::sqr(limitedWalkingSpeed)
+        )
+    );
+    const scalar correctionAirLayer = Foam::min
+    (
+        1.0,
+        Foam::exp
+        (
+            -0.533*velocityOffset
+          + 0.069*Foam::sqr(velocityOffset)
+          - 0.462*limitedWalkingSpeed
+          + 0.201*Foam::sqr(limitedWalkingSpeed)
+        )
+    );
+
+    const scalar targetInsulationSI = 0.155*staticClothingInsulation;
+    const scalar targetAreaFactor =
+        calculateClothingAreaFactor(targetInsulationSI);
+    const scalar resultantAirLayer =
+        boundaryAirLayerInsulation*correctionAirLayer;
+
+    scalar resultantTotalInsulation = 0.0;
+
+    if (staticClothingInsulation <= 0.6)
+    {
+        // ISO 9920 equation 34 interpolates between the nude and 0.6-clo
+        // endpoint totals, not between corrections evaluated at target clo.
+        const scalar endpointClo = 0.6;
+        const scalar endpointInsulationSI = 0.155*endpointClo;
+        const scalar endpointAreaFactor =
+            calculateClothingAreaFactor(endpointInsulationSI);
+        const scalar endpointTotalInsulation =
+            endpointInsulationSI
+          + boundaryAirLayerInsulation/endpointAreaFactor;
+        const scalar resultantNudeTotal = resultantAirLayer;
+        const scalar resultantDressedTotal =
+            correctionTotal*endpointTotalInsulation;
+
+        resultantTotalInsulation =
+        (
+            (endpointClo - staticClothingInsulation)*resultantNudeTotal
+          + staticClothingInsulation*resultantDressedTotal
+        )/endpointClo;
+    }
+    else
+    {
+        const scalar totalInsulation =
+            targetInsulationSI
+          + boundaryAirLayerInsulation/targetAreaFactor;
+        resultantTotalInsulation = correctionTotal*totalInsulation;
+    }
+
+    const scalar resultantClothingSI = Foam::max
+    (
+        0.0,
+        resultantTotalInsulation - resultantAirLayer/targetAreaFactor
+    );
+
+    return resultantClothingSI/0.155;
 }
 
 // Solve for clothing surface temperature iteratively
 // Returns Tuple2<scalar> with first = tcl (Celsius), second = xn (Kelvin/100)
 Foam::Tuple2<scalar> calculateClothingSurfaceTemperature
 (
-    scalar airTemp,
+    scalar airTempC,
     scalar velocity,
     scalar icl,
     scalar fcl,
     scalar radiationTemp,
     scalar metabolicRate,
-    scalar externalWork
+    scalar externalWork,
+    bool& converged
 )
 {
     using namespace ComfortConstants;
-    
-    // Convert airTemp from Kelvin to Celsius for the calculation
-    // Note: Use 273.0 to match ISO 7730/C# implementation
-    scalar airTempC = airTemp - 273.0;
-    // ISO 7730 BASIC line 250: TCLA in Kelvin
-    scalar tcla = airTemp + (35.5 - airTempC) / (3.5 * 6.45 * (icl + 0.1));
+
+    // Annex D intentionally uses 273.0 internally. OpenFOAM field values are
+    // converted from physical kelvin to degrees Celsius before this function.
+    const scalar isoAirTemperature = airTempC + isoTemperatureOffset;
+    const scalar tcla = calculateInitialClothingSurfaceTemperature
+    (
+        isoAirTemperature,
+        airTempC,
+        icl
+    );
     // ISO 7730: iteration uses Kelvin divided by 100
     scalar xn = tcla / 100.0;
     scalar xf = xn;
@@ -393,11 +623,17 @@ Foam::Tuple2<scalar> calculateClothingSurfaceTemperature
     scalar p1 = icl * fcl;
     scalar p2 = p1 * radiationCoeff;
     scalar p3 = p1 * 100.0;
-    scalar p4 = p1 * airTemp;  // Use Kelvin for p4
+    scalar p4 = p1 * isoAirTemperature;
     scalar p5 = 308.7 - 0.028 * (metabolicRate - externalWork)
-              + p2 * Foam::pow((radiationTemp + 273.0) / 100.0, 4);
+              + p2
+               *Foam::pow
+                (
+                    (radiationTemp + isoTemperatureOffset)/100.0,
+                    4
+                );
     
     label iterationCount = 0;
+    converged = false;
     
     
     do
@@ -406,7 +642,12 @@ Foam::Tuple2<scalar> calculateClothingSurfaceTemperature
         xf = (xf + xn) / 2.0;  // ISO 7730 BASIC line 350
         
         scalar hcf = forcedConvectionCoeff * Foam::sqrt(velocity);
-        scalar hcn = naturalConvectionCoeff * Foam::pow(mag(100.0 * xf - airTemp), naturalConvectionExp);
+        scalar hcn = naturalConvectionCoeff
+            *Foam::pow
+             (
+                 mag(100.0*xf - isoAirTemperature),
+                 naturalConvectionExp
+             );
         scalar hc = Foam::max(hcf, hcn);
         
         xn = (p5 + p4 * hc - p2 * Foam::pow(xf, 4.0)) / (100.0 + p3 * hc);
@@ -414,51 +655,57 @@ Foam::Tuple2<scalar> calculateClothingSurfaceTemperature
         
         if (iterationCount > maxClothingIterations)
         {
-            WarningInFunction
-                << "Clothing temperature iteration did not converge after "
-                << maxClothingIterations << " iterations" << endl;
             break;
         }
-        
-    } while (mag(xn - xf) > clothingConvergenceTol);
+
+        converged = mag(xn - xf) <= clothingConvergenceTol;
+
+    } while (!converged);
     
     // Return both tcl (Celsius) and xn (Kelvin/100)
-    return Tuple2<scalar>(100.0 * xn - 273.0, xn);
+    return Tuple2<scalar>(100.0*xn - isoTemperatureOffset, xn);
 }
 
 // Calculate PMV (Predicted Mean Vote)
 Foam::scalar calculatePMV
 (
-    scalar airTemp,
+    scalar airTempC,
     scalar velocity,
-    scalar relativeHumidity,
+    scalar waterVapourPressure,
     scalar radiationTemp,
     scalar metabolicRate,
     scalar clothingInsulation,
-    scalar externalWork
+    scalar externalWork,
+    bool& converged
 )
 {
     using namespace ComfortConstants;
-    
-    // Convert airTemp from Kelvin to Celsius for consistency
-    scalar airTempC = airTemp - 273.0;
-    
+
     scalar icl = 0.155 * clothingInsulation;
-    scalar fcl = (icl < clothingThreshold) ? 
-                 (1.0 + clothingFactor1 * icl) : 
-                 (clothingFactor2 + clothingFactor3 * icl);
-    
-    scalar pa = calculateWaterVapourPressure(airTemp, relativeHumidity);
+    scalar fcl = calculateClothingAreaFactor(icl);
     
     Tuple2<scalar> tclResult = calculateClothingSurfaceTemperature
     (
-        airTemp, velocity, icl, fcl, radiationTemp, metabolicRate, externalWork
+        airTempC,
+        velocity,
+        icl,
+        fcl,
+        radiationTemp,
+        metabolicRate,
+        externalWork,
+        converged
     );
     scalar tcl = tclResult.first();  // Temperature in Celsius
     scalar xn = tclResult.second();   // Kelvin/100
     
     // Calculate heat losses
-    scalar hl1 = skinDiffusionCoeff * (basePressure - (thermalCoeff * (metabolicRate - externalWork)) - pa);
+    scalar hl1 = skinDiffusionCoeff
+        *
+        (
+            basePressure
+          - thermalCoeff*(metabolicRate - externalWork)
+          - waterVapourPressure
+        );
     
     scalar hl2 = 0.0;
     if ((metabolicRate - externalWork) > baseMetabolicRate)
@@ -466,12 +713,20 @@ Foam::scalar calculatePMV
         hl2 = 0.42 * ((metabolicRate - externalWork) - baseMetabolicRate);
     }
     
-    scalar hl3 = respirationCoeff1 * metabolicRate * (respirationHumidity - pa);
+    scalar hl3 = respirationCoeff1*metabolicRate
+        *(respirationHumidity - waterVapourPressure);
     scalar hl4 = respirationCoeff2 * metabolicRate * (respirationTemp - airTempC);
     
     // Use xn directly for HL5 calculation (like ISO 7730 BASIC line 480)
     scalar hl5 = radiationCoeff * fcl * 
-                (Foam::pow(xn, 4) - Foam::pow((radiationTemp + 273.0) / 100.0, 4));
+                (
+                    Foam::pow(xn, 4)
+                  - Foam::pow
+                    (
+                        (radiationTemp + isoTemperatureOffset)/100.0,
+                        4
+                    )
+                );
     
     scalar hcf = forcedConvectionCoeff * Foam::sqrt(velocity);
     scalar hcn = naturalConvectionCoeff * Foam::pow(mag(tcl - airTempC), naturalConvectionExp);
@@ -493,11 +748,141 @@ Foam::scalar calculatePPD(scalar pmv)
     return 100.0 - ppdBase * Foam::exp(-ppdCoeff1 * Foam::pow(pmv, 4) - ppdCoeff2 * Foam::pow(pmv, 2));
 }
 
+bool isPMVModelApplicable
+(
+    scalar airTemperatureC,
+    scalar radiantTemperature,
+    scalar relativeAirVelocity,
+    scalar waterVapourPressure,
+    scalar clothingInsulation,
+    scalar pmv,
+    bool clothingIterationConverged,
+    bool clothingInputCompliant
+)
+{
+    using namespace ComfortConstants;
+
+    return
+        clothingIterationConverged
+     && clothingInputCompliant
+     && airTemperatureC >= minAirTemperature
+     && airTemperatureC <= maxAirTemperature
+     && radiantTemperature >= minRadiantTemperature
+     && radiantTemperature <= maxRadiantTemperature
+     && relativeAirVelocity >= minRelativeAirVelocity
+     && relativeAirVelocity <= maxRelativeAirVelocity
+     && waterVapourPressure >= minWaterVapourPressure
+     && waterVapourPressure <= maxWaterVapourPressure
+     && clothingInsulation >= 0.0
+     && clothingInsulation <= 2.0
+     && pmv >= minApplicablePMV
+     && pmv <= maxApplicablePMV;
+}
+
+Foam::scalar calculateVerticalTemperatureDissatisfaction
+(
+    scalar verticalTemperatureDifference
+)
+{
+    return 100.0
+        /
+        (
+            1.0
+          + Foam::exp(5.76 - 0.856*verticalTemperatureDifference)
+        );
+}
+
+Foam::scalar calculateFloorTemperatureDissatisfaction
+(
+    scalar floorTemperatureC
+)
+{
+    const scalar pd = 100.0
+        - 94.0
+         *Foam::exp
+          (
+              -1.387
+            + 0.118*floorTemperatureC
+            - 0.0025*Foam::sqr(floorTemperatureC)
+          );
+    return Foam::max(0.0, Foam::min(100.0, pd));
+}
+
+bool radiantAsymmetryConstants
+(
+    const word& asymmetryType,
+    scalar& k1,
+    scalar& k2,
+    scalar& k3,
+    scalar& upperLimit
+)
+{
+    if (asymmetryType == "warmCeiling")
+    {
+        k1 = 2.94;
+        k2 = 0.166;
+        k3 = 5.5;
+        upperLimit = 23.0;
+    }
+    else if (asymmetryType == "coolWall")
+    {
+        k1 = 5.89;
+        k2 = 0.297;
+        k3 = 1.0;
+        upperLimit = 15.0;
+    }
+    else if (asymmetryType == "coolCeiling")
+    {
+        k1 = 5.19;
+        k2 = 0.173;
+        k3 = 1.0;
+        upperLimit = 15.0;
+    }
+    else if (asymmetryType == "warmWall")
+    {
+        k1 = 3.41;
+        k2 = 0.044;
+        k3 = 3.5;
+        upperLimit = 35.0;
+    }
+    else
+    {
+        return false;
+    }
+
+    return true;
+}
+
+Foam::scalar calculateRadiantAsymmetryDissatisfaction
+(
+    scalar radiantTemperatureAsymmetry,
+    scalar k1,
+    scalar k2,
+    scalar k3
+)
+{
+    return Foam::max
+    (
+        0.0,
+        Foam::min
+        (
+            100.0,
+            100.0
+           /
+            (
+                1.0
+              + Foam::exp(k1 - k2*radiantTemperatureAsymmetry)
+            )
+          - k3
+        )
+    );
+}
+
 // Calculate operative temperature
 Foam::scalar calculateOperativeTemperature
 (
-    scalar airTemp,
-    scalar radiationTemp,
+    scalar airTemperatureC,
+    scalar radiationTemperatureC,
     scalar velocity
 )
 {
@@ -518,28 +903,97 @@ Foam::scalar calculateOperativeTemperature
         correctionFactor = opTempFactor3;
     }
     
-    return correctionFactor * airTemp + (1.0 - correctionFactor) * (radiationTemp + 273.0);
+    return
+        correctionFactor*airTemperatureC
+      + (1.0 - correctionFactor)*radiationTemperatureC
+      + physicalKelvinOffset;
 }
 
-// Analyze comfort category according to ISO 7730
-ComfortCategory analyzeComfortCategory(scalar pmv, scalar dr, scalar ppd)
+// Annex A categories are informative. Strict inequalities follow Table A.1.
+ComfortCategory analyzeWholeBodyCategory(scalar pmv, scalar ppd)
 {
-    if (mag(pmv) <= 0.2 && dr < 10.0 && ppd < 6.0)
+    if (pmv > -0.2 && pmv < 0.2 && ppd < 6.0)
     {
-        return ComfortCategory::A;
+        return ComfortCategory::I;
     }
-    else if (mag(pmv) <= 0.5 && dr < 20.0 && ppd < 10.0)
+    if (pmv > -0.5 && pmv < 0.5 && ppd < 10.0)
     {
-        return ComfortCategory::B;
+        return ComfortCategory::II;
     }
-    else if (mag(pmv) <= 0.7 && dr < 30.0 && ppd < 15.0)
+    if (pmv > -0.7 && pmv < 0.7 && ppd < 15.0)
     {
-        return ComfortCategory::C;
+        return ComfortCategory::III;
     }
-    else
+    if (pmv > -1.0 && pmv < 1.0 && ppd < 25.0)
     {
-        return ComfortCategory::None;
+        return ComfortCategory::IV;
     }
+
+    return ComfortCategory::None;
+}
+
+ComfortCategory analyzeOverallComfortCategory
+(
+    scalar pmv,
+    scalar ppd,
+    scalar dr,
+    scalar verticalPD,
+    scalar floorPD,
+    scalar radiantAsymmetryPD,
+    bool localInputsAvailable
+)
+{
+    const ComfortCategory wholeBody = analyzeWholeBodyCategory(pmv, ppd);
+
+    if (!localInputsAvailable)
+    {
+        return wholeBody == ComfortCategory::IV
+            ? ComfortCategory::IV
+            : ComfortCategory::Incomplete;
+    }
+
+    if
+    (
+        pmv > -0.2 && pmv < 0.2
+     && ppd < 6.0
+     && dr < 10.0
+     && verticalPD < 3.0
+     && floorPD < 10.0
+     && radiantAsymmetryPD < 5.0
+    )
+    {
+        return ComfortCategory::I;
+    }
+
+    if
+    (
+        pmv > -0.5 && pmv < 0.5
+     && ppd < 10.0
+     && dr < 20.0
+     && verticalPD < 5.0
+     && floorPD < 10.0
+     && radiantAsymmetryPD < 5.0
+    )
+    {
+        return ComfortCategory::II;
+    }
+
+    if
+    (
+        pmv > -0.7 && pmv < 0.7
+     && ppd < 15.0
+     && dr < 30.0
+     && verticalPD < 10.0
+     && floorPD < 15.0
+     && radiantAsymmetryPD < 10.0
+    )
+    {
+        return ComfortCategory::III;
+    }
+
+    return wholeBody == ComfortCategory::None
+        ? ComfortCategory::None
+        : ComfortCategory::IV;
 }
 
 // Normalize selection labels to valid local cell labels.
@@ -830,6 +1284,220 @@ Foam::labelList getCellsToAnalyze
     return cellsToAnalyze;
 }
 
+struct AnnexDValidationCase
+{
+    scalar airTemperature;
+    scalar radiantTemperature;
+    scalar relativeAirVelocity;
+    scalar relativeHumidity;
+    scalar met;
+    scalar clo;
+    scalar expectedPMV;
+    scalar expectedPPD;
+};
+
+Foam::label runISO7730Validation()
+{
+    static const AnnexDValidationCase cases[] =
+    {
+        {22.0, 22.0, 0.10, 60.0, 1.2, 0.5, -0.75374, 16.965},
+        {27.0, 27.0, 0.10, 60.0, 1.2, 0.5,  0.76523, 17.336},
+        {27.0, 27.0, 0.30, 60.0, 1.2, 0.5,  0.43456,  8.939},
+        {23.5, 25.5, 0.10, 60.0, 1.2, 0.5, -0.01499,  5.005},
+        {23.5, 25.5, 0.30, 60.0, 1.2, 0.5, -0.55431, 11.433},
+        {19.0, 19.0, 0.10, 40.0, 1.2, 1.0, -0.60129, 12.581},
+        {23.5, 23.5, 0.10, 60.0, 1.2, 1.0,  0.48898,  9.996},
+        {23.5, 23.5, 0.30, 40.0, 1.2, 1.0,  0.11843,  5.291},
+        {23.0, 21.0, 0.10, 40.0, 1.2, 1.0,  0.05125,  5.054},
+        {23.0, 21.0, 0.30, 40.0, 1.2, 1.0, -0.16683,  5.577},
+        {22.0, 22.0, 0.10, 60.0, 1.6, 0.5,  0.04591,  5.044},
+        {27.0, 27.0, 0.10, 60.0, 1.6, 0.5,  1.17102, 33.843},
+        {27.0, 27.0, 0.30, 60.0, 1.6, 0.5,  0.95095, 24.101}
+    };
+
+    const scalar pmvTolerance = 1e-3;
+    const scalar ppdTolerance = 0.05;
+    label failures = 0;
+
+    Info<< nl
+        << "ISO 7730:2025 Annex D regression validation" << nl
+        << "------------------------------------------------" << endl;
+
+    for (label caseI = 0; caseI < 13; ++caseI)
+    {
+        const AnnexDValidationCase& test = cases[caseI];
+        const scalar vapourPressure = calculateWaterVapourPressure
+        (
+            test.airTemperature,
+            test.relativeHumidity
+        );
+        bool converged = false;
+        const scalar pmv = calculatePMV
+        (
+            test.airTemperature,
+            test.relativeAirVelocity,
+            vapourPressure,
+            test.radiantTemperature,
+            test.met*ComfortConstants::baseMetabolicRate,
+            test.clo,
+            0.0,
+            converged
+        );
+        const scalar ppd = calculatePPD(pmv);
+        const bool passed =
+            converged
+         && mag(pmv - test.expectedPMV) <= pmvTolerance
+         && mag(ppd - test.expectedPPD) <= ppdTolerance;
+
+        Info<< "Case " << caseI + 1 << ": PMV=" << pmv
+            << ", PPD=" << ppd << " % -- "
+            << (passed ? "PASS" : "FAIL") << endl;
+
+        if (!passed)
+        {
+            ++failures;
+            Info<< "  expected PMV=" << test.expectedPMV
+                << ", PPD=" << test.expectedPPD << " %" << endl;
+        }
+    }
+
+    const scalar fieldTemperatureC =
+        295.15 - ComfortConstants::physicalKelvinOffset;
+    const scalar fieldOperativeTemperature =
+        calculateOperativeTemperature(fieldTemperatureC, 22.0, 0.1);
+    const bool physicalKelvinPassed =
+        mag(fieldTemperatureC - 22.0) < 1e-12
+     && mag(fieldOperativeTemperature - 295.15) < 1e-12;
+    Info<< "Physical-kelvin field conversion: "
+        << (physicalKelvinPassed ? "PASS" : "FAIL") << endl;
+    if (!physicalKelvinPassed)
+    {
+        ++failures;
+    }
+
+    const scalar initialTcl = calculateInitialClothingSurfaceTemperature
+    (
+        295.0,
+        22.0,
+        0.155*0.5
+    );
+    const bool initialTclPassed = mag(initialTcl - 301.4299109933617) < 1e-9;
+    Info<< "Annex D line 250: "
+        << (initialTclPassed ? "PASS" : "FAIL") << endl;
+    if (!initialTclPassed)
+    {
+        ++failures;
+    }
+
+    const scalar dr = calculateDraughtRating(22.0, 0.1, 0.4);
+    const bool drPassed = mag(dr - 8.653357061761142) < 1e-9;
+    Info<< "Draught-rate turbulence-percent conversion: "
+        << (drPassed ? "PASS" : "FAIL") << endl;
+    if (!drPassed)
+    {
+        ++failures;
+    }
+
+    bool clothingCorrectionApplicable = false;
+    const scalar corrected03 = calculateResultantClothingInsulation
+    (
+        0.3,
+        0.5,
+        0.2,
+        clothingCorrectionApplicable
+    );
+    const bool dynamicClothingPassed =
+        clothingCorrectionApplicable
+     && mag(corrected03 - 0.27354745) < 1e-6;
+    Info<< "ISO 9920 dynamic-clothing correction: "
+        << (dynamicClothingPassed ? "PASS" : "FAIL") << endl;
+    if (!dynamicClothingPassed)
+    {
+        ++failures;
+    }
+
+    const scalar correctedLowerVelocity =
+        calculateResultantClothingInsulation
+        (
+            1.0,
+            0.0,
+            0.2,
+            clothingCorrectionApplicable
+        );
+    const bool clothingVelocityClampPassed =
+        clothingCorrectionApplicable
+     && mag(correctedLowerVelocity - 0.9086965858) < 1e-6;
+    Info<< "Dynamic-clothing 0.15 m/s lower limit: "
+        << (clothingVelocityClampPassed ? "PASS" : "FAIL") << endl;
+    if (!clothingVelocityClampPassed)
+    {
+        ++failures;
+    }
+
+    const bool categoryBoundsPassed =
+        analyzeWholeBodyCategory(0.2, calculatePPD(0.2))
+            != ComfortCategory::I
+     && analyzeWholeBodyCategory(-0.2, calculatePPD(-0.2))
+            != ComfortCategory::I;
+    Info<< "Strict Annex A category bounds: "
+        << (categoryBoundsPassed ? "PASS" : "FAIL") << endl;
+    if (!categoryBoundsPassed)
+    {
+        ++failures;
+    }
+
+    const scalar verticalPD =
+        calculateVerticalTemperatureDissatisfaction(1.0);
+    const scalar floorPD = calculateFloorTemperatureDissatisfaction(24.0);
+    scalar k1 = 0.0;
+    scalar k2 = 0.0;
+    scalar k3 = 0.0;
+    scalar asymmetryLimit = 0.0;
+    const bool radiantConstantsValid = radiantAsymmetryConstants
+    (
+        "warmCeiling",
+        k1,
+        k2,
+        k3,
+        asymmetryLimit
+    );
+    const scalar radiantPD = calculateRadiantAsymmetryDissatisfaction
+    (
+        2.0,
+        k1,
+        k2,
+        k3
+    );
+    const bool localModelsPassed =
+        radiantConstantsValid
+     && asymmetryLimit == 23.0
+     && mag(verticalPD - 0.736225) < 1e-5
+     && mag(floorPD - 5.52882) < 1e-5
+     && mag(radiantPD - 1.36253) < 1e-5
+     && analyzeOverallComfortCategory
+        (
+            0.0,
+            5.0,
+            8.0,
+            verticalPD,
+            floorPD,
+            radiantPD,
+            true
+        ) == ComfortCategory::I;
+    Info<< "Local-discomfort models and Category I: "
+        << (localModelsPassed ? "PASS" : "FAIL") << endl;
+    if (!localModelsPassed)
+    {
+        ++failures;
+    }
+
+    Info<< "------------------------------------------------" << nl
+        << (failures == 0 ? "VALIDATION PASSED" : "VALIDATION FAILED")
+        << " (" << failures << " failure(s))" << nl << endl;
+
+    return failures == 0 ? 0 : 1;
+}
+
 // * * * * * * * * * * * * * * * * Main Program * * * * * * * * * * * * * * //
 
 int main(int argc, char *argv[])
@@ -839,49 +1507,7 @@ int main(int argc, char *argv[])
     argList::addBoolOption
     (
         "validate",
-        "Run validation test with ISO 7730 standard conditions"
-    );
-    
-    argList::addOption
-    (
-        "validateAirTemp",
-        "value",
-        "Air temperature in Celsius for validation (default: 22)"
-    );
-    
-    argList::addOption
-    (
-        "validateRadTemp", 
-        "value",
-        "Radiation temperature in Celsius for validation (default: 22)"
-    );
-    
-    argList::addOption
-    (
-        "validateVelocity",
-        "value", 
-        "Air velocity in m/s for validation (default: 0.1)"
-    );
-    
-    argList::addOption
-    (
-        "validateRH",
-        "value",
-        "Relative humidity in % for validation (default: 60)"
-    );
-    
-    argList::addOption
-    (
-        "validateMet",
-        "value",
-        "Metabolic rate in met for validation (default: 1.2)"
-    );
-    
-    argList::addOption
-    (
-        "validateClo",
-        "value",
-        "Clothing insulation in clo for validation (default: 0.5)"
+        "Run all ISO 7730:2025 Annex D regression tests"
     );
     
     argList::addOption
@@ -909,128 +1535,22 @@ int main(int argc, char *argv[])
     #include "setRootCase.H"
     #include "createTime.H"
     
-    // Check if validation mode is requested
     if (args.found("validate"))
     {
-        Info<< "\n========== VALIDATION MODE ==========\n" << endl;
-        
-        // Get validation parameters
-        scalar valAirTemp = args.getOrDefault<scalar>("validateAirTemp", 22.0);
-        scalar valRadTemp = args.getOrDefault<scalar>("validateRadTemp", 22.0);
-        scalar valVelocity = args.getOrDefault<scalar>("validateVelocity", 0.1);
-        scalar valRH = args.getOrDefault<scalar>("validateRH", 60.0);
-        scalar valMet = args.getOrDefault<scalar>("validateMet", 1.2);
-        scalar valClo = args.getOrDefault<scalar>("validateClo", 0.5);
-        scalar valWme = 0.0; // External work is typically 0
-        
-        Info<< "Validation parameters:" << nl
-            << "  Air temperature:        " << valAirTemp << " degrees C" << nl
-            << "  Radiation temperature:  " << valRadTemp << " degrees C" << nl
-            << "  Air velocity:           " << valVelocity << " m/s" << nl
-            << "  Relative humidity:      " << valRH << " %" << nl
-            << "  Metabolic rate:         " << valMet << " met" << nl
-            << "  Clothing insulation:    " << valClo << " clo" << nl
-            << "  External work:          " << valWme << " met" << nl << endl;
-        
-        // Convert to SI units
-        // Note: ISO 7730 uses 273.0 for K conversion
-        scalar airTempK = valAirTemp + 273.0;  // Match C# code exactly
-        scalar metRate = valMet * 58.15;
-        scalar wmeRate = valWme * 58.15;
-        
-        // Calculate clothing parameters
-        scalar icl = 0.155 * valClo;
-        scalar fcl = (icl < 0.078) ? 
-                     (1.0 + 1.29 * icl) : 
-                     (1.05 + 0.645 * icl);
-        
-        Info<< "Intermediate values:" << nl
-            << "  Icl:                    " << icl << " m^2*K/W" << nl
-            << "  fcl:                    " << fcl << nl
-            << "  M:                      " << metRate << " W/m^2" << nl
-            << "  W:                      " << wmeRate << " W/m^2" << nl;
-        
-        // Calculate clothing surface temperature
-        Tuple2<scalar> tclResult = calculateClothingSurfaceTemperature
-        (
-            airTempK, valVelocity, icl, fcl, valRadTemp, metRate, wmeRate
-        );
-        scalar tcl = tclResult.first();
-        scalar xn = tclResult.second();
-        
-        // Recalculate initial values for debugging
-        scalar tcla_debug = airTempK + (35.5 - valAirTemp) / (3.5 * 6.45 * (icl + 0.1));
-        scalar xn_initial = tcla_debug / 100.0;
-        
-        Info<< "  TCLA initial:           " << tcla_debug << " K" << nl
-            << "  XN initial:             " << xn_initial << nl
-            << "  Clothing temp (tcl):    " << tcl << " degrees C" << nl
-            << "  Iteration result (xn):  " << xn << nl;
-            
-        // Calculate heat losses for debugging
-        scalar pa = calculateWaterVapourPressure(airTempK, valRH);
-        Info<< "  Water vapor pressure:   " << pa << " Pa" << nl;
-        
-        scalar hl1 = 3.05e-3 * (5733 - 6.99 * (metRate - wmeRate) - pa);
-        scalar hl2 = (metRate - wmeRate > 58.15) ? 0.42 * ((metRate - wmeRate) - 58.15) : 0.0;
-        scalar hl3 = 1.7e-5 * metRate * (5867 - pa);
-        scalar hl4 = 0.0014 * metRate * (34.0 - valAirTemp);
-        scalar hl5 = 3.96 * fcl * (Foam::pow(xn, 4) - Foam::pow((valRadTemp + 273.0) / 100.0, 4));
-        
-        scalar hcf = 12.1 * Foam::sqrt(valVelocity);
-        scalar hcn = 2.38 * Foam::pow(mag(tcl - valAirTemp), 0.25);
-        scalar hc = Foam::max(hcf, hcn);
-        scalar hl6 = fcl * hc * (tcl - valAirTemp);
-        
-        Info<< nl << "Heat losses:" << nl
-            << "  HL1 (skin diffusion):   " << hl1 << " W/m^2" << nl
-            << "  HL2 (sweat):            " << hl2 << " W/m^2" << nl
-            << "  HL3 (resp. latent):     " << hl3 << " W/m^2" << nl
-            << "  HL4 (resp. sensible):   " << hl4 << " W/m^2" << nl
-            << "  HL5 (radiation):        " << hl5 << " W/m^2" << nl
-            << "  HL6 (convection):       " << hl6 << " W/m^2" << nl
-            << "  Total heat loss:        " << hl1+hl2+hl3+hl4+hl5+hl6 << " W/m^2" << nl;
-            
-        scalar ts = 0.303 * Foam::exp(-0.036 * metRate) + 0.028;
-        scalar balance = (metRate - wmeRate) - hl1 - hl2 - hl3 - hl4 - hl5 - hl6;
-        Info<< "  TS coefficient:         " << ts << nl
-            << "  Heat balance:           " << balance << " W/m^2" << nl;
-        
-        // Calculate PMV directly from the already computed values
-        scalar pmv = ts * balance;
-        
-        // Calculate PPD
-        scalar ppd = calculatePPD(pmv);
-        
-        // Calculate DR
-        scalar dr = calculateDraughtRating
-        (
-            valAirTemp + 273.0,  // Convert to Kelvin
-            valVelocity,
-            0.4  // Assume 40% turbulence intensity for validation (as fraction)
-        );
-        
-        Info<< nl << "VALIDATION RESULTS:" << nl
-            << "  PMV:                    " << pmv << nl
-            << "  PPD:                    " << ppd << " %" << nl
-            << "  DR:                     " << dr << " %" << nl;
-        
-        Info<< nl << "Expected values (ISO 7730):" << nl
-            << "  PMV:                    -0.75" << nl
-            << "  PPD:                    17 %" << nl;
-        
-        Info<< nl << "Deviation:" << nl
-            << "  PMV error:              " << mag(pmv - (-0.75)) << " (" 
-            << mag(pmv - (-0.75))/0.75*100 << "%)" << nl
-            << "  PPD error:              " << mag(ppd - 17.0) << " %" << nl;
-            
-        Info<< "\n====================================\n" << endl;
-        
-        return 0;
+        return runISO7730Validation();
     }
 
     // Get times list
     Foam::instantList timeDirs = Foam::timeSelector::select0(runTime, args);
+
+    if (timeDirs.size() > 1)
+    {
+        WarningInFunction
+            << "Multiple time directories were selected. comfortFoam evaluates "
+            << "each snapshot independently; it does not create the one-hour "
+            << "time-weighted inputs required by ISO 7730 for lightly varying "
+            << "conditions." << endl;
+    }
 
     #include "createNamedMesh.H"
 
@@ -1046,10 +1566,70 @@ int main(int argc, char *argv[])
         volScalarField T(THeader, mesh);
         const fvPatchList& patches = T.mesh().boundary();
 
-        // Check for humidity field - multiple possible sources
+        validateInputParameters(met, clo, wme, RH1);
+
+        if (applyDynamicClothing && clothingAlreadyResultant)
+        {
+            FatalErrorInFunction
+                << "applyDynamicClothing and clothingAlreadyResultant cannot "
+                << "both be true. Choose exactly one clothing-input mode."
+                << abort(FatalError);
+        }
+
+        const bool clothingModeDeclared =
+            applyDynamicClothing || clothingAlreadyResultant;
+        if (!clothingModeDeclared)
+        {
+            WarningInFunction
+                << "No ISO 7730:2025 clothing-input mode is declared. "
+                << "The legacy clo value will be used, but ISO7730Valid "
+                << "will be zero. Set applyDynamicClothing or "
+                << "clothingAlreadyResultant to true." << endl;
+        }
+
+        if
+        (
+            configuredWalkingSpeed > 1.2
+         ||
+            (
+                configuredWalkingSpeed < 0.0
+             && configuredWalkingSpeed != -1.0
+            )
+        )
+        {
+            FatalErrorInFunction
+                << "walkingSpeed must be -1 (automatic) or between 0 and "
+                << "1.2 m/s: " << configuredWalkingSpeed
+                << abort(FatalError);
+        }
+
+        scalar radiantK1 = 0.0;
+        scalar radiantK2 = 0.0;
+        scalar radiantK3 = 0.0;
+        scalar radiantAsymmetryLimit = 0.0;
+        if
+        (
+            !radiantAsymmetryConstants
+            (
+                radiantAsymmetryType,
+                radiantK1,
+                radiantK2,
+                radiantK3,
+                radiantAsymmetryLimit
+            )
+        )
+        {
+            FatalErrorInFunction
+                << "Invalid radiantAsymmetryType '" << radiantAsymmetryType
+                << "'. Valid values are warmCeiling, coolWall, coolCeiling "
+                << "and warmWall."
+                << abort(FatalError);
+        }
+
+        // Check for humidity fields from supported solver conventions.
         bool humidityAvailable = false;
         autoPtr<volScalarField> humidityField;
-        word humiditySource("ISO7730Dict RH");
+        word humiditySource("comfortFoamDict RH");
 
         const wordList humidityCandidates
         ({
@@ -1079,46 +1659,62 @@ int main(int argc, char *argv[])
             }
         }
 
-        if (humidityAvailable)
+        autoPtr<volScalarField> waterVapourPressureField;
+        if (waterVapourPressureHeader.typeHeaderOk<volScalarField>())
+        {
+            waterVapourPressureField.reset
+            (
+                new volScalarField(waterVapourPressureHeader, mesh)
+            );
+            Info<< "Using water-vapour pressure field: waterVapourPressure"
+                << endl;
+        }
+        else if (configuredWaterVapourPressure >= 0.0)
+        {
+            Info<< "Using constant water-vapour pressure: "
+                << configuredWaterVapourPressure << " Pa" << endl;
+        }
+
+        if
+        (
+            !waterVapourPressureField.valid()
+         && configuredWaterVapourPressure < 0.0
+         && humidityAvailable
+        )
         {
             Info<< "Using humidity field: " << humiditySource << endl;
         }
-        else
+        else if
+        (
+            !waterVapourPressureField.valid()
+         && configuredWaterVapourPressure < 0.0
+        )
         {
             Info<< "No humidity field found - using default value: " << RH1 << "%" << endl;
         }
 
-        // Check for turbulence field
-        // Check for turbulence fields
+        // Turbulence intensity requires only k.
         bool turbulenceAvailable = false;
         autoPtr<volScalarField> kField;
-        autoPtr<volScalarField> epsilonField;
-        autoPtr<volScalarField> omegaField;
-        
-        word turbulenceModel = "none";
 
         if (kHeader.typeHeaderOk<volScalarField>())
         {
             kField.reset(new volScalarField(kHeader, mesh));
             turbulenceAvailable = true;
             
-            // Check which turbulence model is used
             if (epsilonHeader.typeHeaderOk<volScalarField>())
             {
-                epsilonField.reset(new volScalarField(epsilonHeader, mesh));
-                turbulenceModel = "k-epsilon";
-                Info<< "Turbulence model: k-epsilon" << endl;
+                Info<< "Turbulence source: k (k-epsilon model detected)"
+                    << endl;
             }
             else if (omegaHeader.typeHeaderOk<volScalarField>())
             {
-                omegaField.reset(new volScalarField(omegaHeader, mesh));
-                turbulenceModel = "k-omega";
-                Info<< "Turbulence model: k-omega SST" << endl;
+                Info<< "Turbulence source: k (k-omega model detected)"
+                    << endl;
             }
             else
             {
-                turbulenceModel = "k-only";
-                Info<< "Turbulence field k available (no epsilon/omega found)" << endl;
+                Info<< "Turbulence source: k" << endl;
             }
         }
         else
@@ -1128,6 +1724,64 @@ int main(int argc, char *argv[])
 
         // Load velocity field
         volVectorField U(UHeader, mesh);
+
+        autoPtr<volScalarField> mrtField;
+        if (MRTHeader.typeHeaderOk<volScalarField>())
+        {
+            mrtField.reset(new volScalarField(MRTHeader, mesh));
+            Info<< "Using mean radiant temperature field: MRT" << endl;
+        }
+
+        autoPtr<volScalarField> relativeAirVelocityField;
+        if (relativeAirVelocityHeader.typeHeaderOk<volScalarField>())
+        {
+            relativeAirVelocityField.reset
+            (
+                new volScalarField(relativeAirVelocityHeader, mesh)
+            );
+            Info<< "Using relative-air-velocity field: relativeAirVelocity"
+                << endl;
+        }
+        else if (configuredRelativeAirVelocity >= 0.0)
+        {
+            Info<< "Using constant relative air velocity: "
+                << configuredRelativeAirVelocity << " m/s" << endl;
+        }
+
+        autoPtr<volScalarField> verticalTemperatureDifferenceField;
+        if
+        (
+            verticalTemperatureDifferenceHeader
+               .typeHeaderOk<volScalarField>()
+        )
+        {
+            verticalTemperatureDifferenceField.reset
+            (
+                new volScalarField(verticalTemperatureDifferenceHeader, mesh)
+            );
+        }
+
+        autoPtr<volScalarField> floorTemperatureField;
+        if (floorTemperatureHeader.typeHeaderOk<volScalarField>())
+        {
+            floorTemperatureField.reset
+            (
+                new volScalarField(floorTemperatureHeader, mesh)
+            );
+        }
+
+        autoPtr<volScalarField> radiantTemperatureAsymmetryField;
+        if
+        (
+            radiantTemperatureAsymmetryHeader
+               .typeHeaderOk<volScalarField>()
+        )
+        {
+            radiantTemperatureAsymmetryField.reset
+            (
+                new volScalarField(radiantTemperatureAsymmetryHeader, mesh)
+            );
+        }
         
         // Get cells to analyze (cellSet/cellZone from CLI or comfortFoamDict)
         AnalysisRegionType selectionType;
@@ -1139,12 +1793,21 @@ int main(int argc, char *argv[])
         scalar avgVelocityMag, avgTemperature, totalAnalysisVolume;
         calculateVolumeWeightedAverages(mesh, cellsToAnalyze, avgVelocityMag, avgTemperature, totalAnalysisVolume);
 
-        // Validate input parameters
-        validateInputParameters(met, clo, wme, RH1);
-
         // Pre-calculate constants
         const scalar metRate = met * ComfortConstants::baseMetabolicRate;
         const scalar wmeRate = wme * ComfortConstants::baseMetabolicRate;
+        const scalar walkingSpeed = applyDynamicClothing
+            ? calculateWalkingSpeed(metRate, configuredWalkingSpeed)
+            : Foam::max(0.0, configuredWalkingSpeed);
+
+        if (applyDynamicClothing && (clo < 0.0 || clo >= 1.4))
+        {
+            WarningInFunction
+                << "Dynamic clothing correction is defined for 0 <= clo < "
+                << "1.4. The configured value is " << clo << " clo. "
+                << "Use clothingAlreadyResultant with a pre-corrected value "
+                << "for this case." << endl;
+        }
 
         // Volume-weighted averages for output
         scalar volumeWeightedPMV(0);
@@ -1154,13 +1817,30 @@ int main(int argc, char *argv[])
         scalar volumeWeightedRadTemp(0);
         scalar volumeWeightedRH(0);
         scalar volumeWeightedTu(0);
+        scalar volumeWeightedRelativeVelocity(0);
+        scalar volumeWeightedResultantClo(0);
         scalar totalVolume(0);
 
+        label invalidPMVCells = 0;
+        label invalidDRCells = 0;
+        label invalidLocalCells = 0;
+        label missingLocalCells = 0;
+        label nonConvergedCells = 0;
+        bool anyWholeBodyNoCategory = false;
+        bool anyOverallNoCategory = false;
+        bool anyOverallIncomplete = false;
+        label worstWholeBodyCategory = 1;
+        label worstOverallCategory = 1;
+
         // Radiation source selection must be rank-consistent in parallel.
-        const bool useGField = G.headerOk();
-        const bool useQrField = (!useGField && qrHeader.typeHeaderOk<volScalarField>());
+        const bool useMRTField = mrtField.valid();
+        const bool useGField = !useMRTField && G.headerOk();
+        const bool useQrField =
+            !useMRTField && !useGField
+         && qrHeader.typeHeaderOk<volScalarField>();
         const bool useIDefaultField =
-            (!useGField && !useQrField && IDefaultHeader.typeHeaderOk<volScalarField>());
+            !useMRTField && !useGField && !useQrField
+         && IDefaultHeader.typeHeaderOk<volScalarField>();
 
         autoPtr<volScalarField> qrField;
         autoPtr<volScalarField> IDefaultField;
@@ -1174,7 +1854,7 @@ int main(int argc, char *argv[])
         {
             IDefaultField.reset(new volScalarField(IDefaultHeader, mesh));
         }
-        else
+        else if (!useMRTField && !useGField)
         {
             // Uses gSum internally, so evaluate once per time-step (not per cell).
             fallbackRadTemp = calculateRadiationTemperature(mesh, patches);
@@ -1183,123 +1863,357 @@ int main(int argc, char *argv[])
         // Main calculation loop - only over selected cells
         forAll(cellsToAnalyze, i)
         {
-            label cellI = cellsToAnalyze[i];
-            // Clamp temperature to reasonable range
-            scalar cellTemp = Foam::min(400.0, T[cellI]);
-            
+            const label cellI = cellsToAnalyze[i];
+            const scalar cellTemp = T[cellI];
+            const scalar cellTempC =
+                cellTemp - ComfortConstants::physicalKelvinOffset;
+            const scalar localAirVelocity = mag(U[cellI]);
+
             // Determine radiation temperature from available radiation fields
             scalar cellRadTemp;
-            if (useGField)
+            if (useMRTField)
             {
-                // Use incident radiation field G (primary choice)
+                cellRadTemp =
+                    mrtField()[cellI]
+                  - ComfortConstants::physicalKelvinOffset;
+            }
+            else if (useGField)
+            {
                 scalar gValue = Foam::max(0.0, Foam::min(50000.0, G[cellI]));
-                cellRadTemp = Foam::pow(gValue / (4.0 * ComfortConstants::stefanBoltzmannConstant), 0.25) - 273.0;
+                cellRadTemp = Foam::pow
+                (
+                    gValue
+                   /(4.0*ComfortConstants::stefanBoltzmannConstant),
+                    0.25
+                ) - ComfortConstants::physicalKelvinOffset;
             }
             else if (qrField.valid())
             {
-                // Use radiative heat flux field qr
-                // qr is typically the net radiative heat flux in W/m^2
-                // For a gray surface: qr = epsilon * sigma * (T^4 - T_rad^4)
-                // Assuming epsilon = 0.9 and using local temperature to estimate T_rad
-                scalar epsilon = 0.9;
-                scalar localTemp = cellTemp;
-                scalar qrValue = qrField()[cellI];
-                // Solve for T_rad from: qr = epsilon * sigma * (T^4 - T_rad^4)
-                scalar T4_rad = Foam::pow(localTemp, 4) - qrValue / (epsilon * ComfortConstants::stefanBoltzmannConstant);
+                const scalar emissivity = 0.9;
+                const scalar qrValue = qrField()[cellI];
+                const scalar T4_rad = Foam::pow(cellTemp, 4)
+                    - qrValue
+                     /(emissivity*ComfortConstants::stefanBoltzmannConstant);
                 if (T4_rad > 0)
                 {
-                    cellRadTemp = Foam::pow(T4_rad, 0.25) - 273.0;
+                    cellRadTemp =
+                        Foam::pow(T4_rad, 0.25)
+                      - ComfortConstants::physicalKelvinOffset;
                 }
                 else
                 {
-                    // Fallback to local temperature if calculation gives invalid result
-                    cellRadTemp = localTemp - 273.0;
+                    cellRadTemp = cellTempC;
                 }
             }
             else if (IDefaultField.valid())
             {
-                // Use default radiation intensity field IDefault
-                // IDefault is radiation intensity in W/m^2/sr
-                // Total irradiance G = 4*pi*I for isotropic radiation
-                scalar gValue = 4.0 * constant::mathematical::pi * IDefaultField()[cellI];
+                scalar gValue = 4.0*constant::mathematical::pi
+                    *IDefaultField()[cellI];
                 gValue = Foam::max(0.0, Foam::min(50000.0, gValue));
-                cellRadTemp = Foam::pow(gValue / (4.0 * ComfortConstants::stefanBoltzmannConstant), 0.25) - 273.0;
+                cellRadTemp = Foam::pow
+                (
+                    gValue
+                   /(4.0*ComfortConstants::stefanBoltzmannConstant),
+                    0.25
+                ) - ComfortConstants::physicalKelvinOffset;
             }
             else
             {
-                // Fallback: Use area-weighted wall temperature
                 cellRadTemp = fallbackRadTemp;
             }
-            
-            // Calculate relative humidity
-            scalar cellRH;
-            if (humidityAvailable)
+
+            scalar cellRH = RH1;
+            scalar cellVapourPressure = -1.0;
+            if (waterVapourPressureField.valid())
             {
-                // For thermo::relHum field, values are typically already in [0,1] range
-                // For relHum field, values might be in [0,100] range
-                scalar rawHumidity = humidityField()[cellI];
-                
-                // Auto-detect range and convert to percentage
-                if (rawHumidity <= 1.0)
+                cellVapourPressure = waterVapourPressureField()[cellI];
+                cellRH = calculateRelativeHumidity
+                (
+                    cellTempC,
+                    cellVapourPressure
+                );
+            }
+            else if (configuredWaterVapourPressure >= 0.0)
+            {
+                cellVapourPressure = configuredWaterVapourPressure;
+                cellRH = calculateRelativeHumidity
+                (
+                    cellTempC,
+                    cellVapourPressure
+                );
+            }
+            else if (humidityAvailable)
+            {
+                const scalar rawHumidity = humidityField()[cellI];
+                const bool knownFractionSource =
+                    humiditySource == "thermo:relHum"
+                 || humiditySource == "thermoRelHum";
+                const bool knownPercentSource =
+                    humiditySource == "RH"
+                 || humiditySource == "relativeHumidity";
+
+                if
+                (
+                    knownFractionSource
+                 || (!knownPercentSource && rawHumidity <= 1.0)
+                )
                 {
-                    cellRH = rawHumidity * 100.0;  // Convert from fraction to percentage
+                    cellRH = rawHumidity*100.0;
                 }
                 else
                 {
-                    cellRH = rawHumidity;  // Already in percentage
+                    cellRH = rawHumidity;
                 }
-                
-                // Clamp to valid range
-                cellRH = Foam::max(0.0, Foam::min(100.0, cellRH));
             }
-            else
+
+            cellVapourPressure = cellVapourPressure >= 0.0
+                ? cellVapourPressure
+                : calculateWaterVapourPressure(cellTempC, cellRH);
+
+            scalar relativeAirVelocity = localAirVelocity + walkingSpeed;
+            if (relativeAirVelocityField.valid())
             {
-                cellRH = RH1;  // Use default value
+                relativeAirVelocity = relativeAirVelocityField()[cellI];
             }
-            
-            // Calculate turbulent intensity
-            scalar Tu = calculateTurbulentIntensity
+            else if (configuredRelativeAirVelocity >= 0.0)
+            {
+                relativeAirVelocity = configuredRelativeAirVelocity;
+            }
+            const scalar modelRelativeAirVelocity =
+                Foam::max(relativeAirVelocity, 0.0);
+
+            bool clothingCorrectionApplicable = true;
+            scalar resultantClo = clo;
+            if (applyDynamicClothing)
+            {
+                resultantClo = calculateResultantClothingInsulation
+                (
+                    clo,
+                    modelRelativeAirVelocity,
+                    walkingSpeed,
+                    clothingCorrectionApplicable
+                );
+            }
+            const bool clothingInputCompliant =
+                clothingModeDeclared && clothingCorrectionApplicable;
+
+            const scalar turbulenceIntensity =
+                calculateTurbulentIntensityFraction
             (
-                mag(U[cellI]),
+                localAirVelocity,
                 turbulenceAvailable && kField.valid() ? kField()[cellI] : 0.0,
-                turbulenceAvailable && epsilonField.valid() ? epsilonField()[cellI] : 0.0,
-                turbulenceAvailable && omegaField.valid() ? omegaField()[cellI] : 0.0,
-                turbulenceModel
+                turbulenceAvailable && kField.valid()
             );
-            
-            // Calculate comfort parameters
-            scalar pmv = calculatePMV
+
+            bool clothingIterationConverged = false;
+            const scalar pmv = calculatePMV
             (
-                cellTemp,
-                mag(U[cellI]),
-                cellRH,
+                cellTempC,
+                modelRelativeAirVelocity,
+                cellVapourPressure,
                 cellRadTemp,
                 metRate,
-                clo,
-                wmeRate
+                resultantClo,
+                wmeRate,
+                clothingIterationConverged
             );
-            
-            scalar ppd = calculatePPD(pmv);
-            
-            scalar dr = calculateDraughtRating(cellTemp, mag(U[cellI]), Tu);
-            
-            scalar tOp = calculateOperativeTemperature(cellTemp, cellRadTemp, mag(U[cellI]));
-            
-            // Store results in fields
+            const scalar ppd = calculatePPD(pmv);
+            const scalar dr = calculateDraughtRating
+            (
+                cellTempC,
+                localAirVelocity,
+                turbulenceIntensity
+            );
+            const scalar tOp = calculateOperativeTemperature
+            (
+                cellTempC,
+                cellRadTemp,
+                localAirVelocity
+            );
+
+            const bool pmvApplicable = isPMVModelApplicable
+            (
+                cellTempC,
+                cellRadTemp,
+                relativeAirVelocity,
+                cellVapourPressure,
+                resultantClo,
+                pmv,
+                clothingIterationConverged,
+                clothingInputCompliant
+            );
+            const bool drApplicable = isDraughtModelApplicable
+            (
+                cellTempC,
+                localAirVelocity,
+                turbulenceIntensity,
+                met
+            );
+
+            const bool verticalAvailable =
+                verticalTemperatureDifferenceField.valid()
+             || configuredVerticalTemperatureDifference >= 0.0;
+            const scalar verticalDifference =
+                verticalTemperatureDifferenceField.valid()
+              ? verticalTemperatureDifferenceField()[cellI]
+              : configuredVerticalTemperatureDifference;
+            const bool verticalValid =
+                verticalAvailable
+             && verticalDifference >= 0.0
+             && verticalDifference < 8.0;
+            const scalar verticalPD = verticalValid
+                ? calculateVerticalTemperatureDissatisfaction
+                  (
+                      verticalDifference
+                  )
+                : -1.0;
+
+            const bool floorAvailable =
+                floorTemperatureField.valid()
+             || configuredFloorTemperature >= 0.0;
+            const scalar floorTemperatureC = floorTemperatureField.valid()
+                ? floorTemperatureField()[cellI]
+                  - ComfortConstants::physicalKelvinOffset
+                : configuredFloorTemperature;
+            const bool floorValid = floorAvailable;
+            const scalar floorPD = floorValid
+                ? calculateFloorTemperatureDissatisfaction(floorTemperatureC)
+                : -1.0;
+
+            const bool radiantAvailable =
+                radiantTemperatureAsymmetryField.valid()
+             || configuredRadiantTemperatureAsymmetry >= 0.0;
+            const scalar radiantAsymmetry =
+                radiantTemperatureAsymmetryField.valid()
+              ? radiantTemperatureAsymmetryField()[cellI]
+              : configuredRadiantTemperatureAsymmetry;
+            const bool radiantValid =
+                radiantAvailable
+             && radiantAsymmetry >= 0.0
+             && radiantAsymmetry < radiantAsymmetryLimit;
+            const scalar radiantPD = radiantValid
+                ? calculateRadiantAsymmetryDissatisfaction
+                  (
+                      radiantAsymmetry,
+                      radiantK1,
+                      radiantK2,
+                      radiantK3
+                  )
+                : -1.0;
+
+            const bool localInputsAvailable =
+                verticalAvailable && floorAvailable && radiantAvailable;
+            const bool localInputsValid =
+                verticalValid && floorValid && radiantValid;
+            const bool completeLocalAssessment =
+                drApplicable && localInputsAvailable && localInputsValid;
+
+            const ComfortCategory wholeBodyCategory = pmvApplicable
+                ? analyzeWholeBodyCategory(pmv, ppd)
+                : ComfortCategory::None;
+            const ComfortCategory overallCategory = !pmvApplicable
+                ? ComfortCategory::None
+                :
+                  (
+                      completeLocalAssessment
+                    ? analyzeOverallComfortCategory
+                      (
+                          pmv,
+                          ppd,
+                          dr,
+                          verticalPD,
+                          floorPD,
+                          radiantPD,
+                          true
+                      )
+                    :
+                      (
+                          wholeBodyCategory == ComfortCategory::IV
+                        ? ComfortCategory::IV
+                        : ComfortCategory::Incomplete
+                      )
+                  );
+
             PMV[cellI] = pmv;
             PPD[cellI] = ppd;
             DR[cellI] = dr;
             TOp[cellI] = tOp;
-            
+            PDVertical[cellI] = verticalPD;
+            PDFloor[cellI] = floorPD;
+            PDRadiantAsymmetry[cellI] = radiantPD;
+            ISO7730Valid[cellI] = pmvApplicable ? 1.0 : 0.0;
+            ISO7730WholeBodyCategory[cellI] =
+                comfortCategoryValue(wholeBodyCategory);
+            ISO7730Category[cellI] =
+                comfortCategoryValue(overallCategory);
+
+            if (!pmvApplicable)
+            {
+                ++invalidPMVCells;
+            }
+            if (!drApplicable)
+            {
+                ++invalidDRCells;
+            }
+            if (!clothingIterationConverged)
+            {
+                ++nonConvergedCells;
+            }
+            if (!localInputsAvailable)
+            {
+                ++missingLocalCells;
+            }
+            else if (!localInputsValid)
+            {
+                ++invalidLocalCells;
+            }
+
+            if (wholeBodyCategory == ComfortCategory::None)
+            {
+                anyWholeBodyNoCategory = true;
+            }
+            else
+            {
+                worstWholeBodyCategory = Foam::max
+                (
+                    worstWholeBodyCategory,
+                    static_cast<label>(wholeBodyCategory)
+                );
+            }
+
+            if (overallCategory == ComfortCategory::Incomplete)
+            {
+                anyOverallIncomplete = true;
+            }
+            else if (overallCategory == ComfortCategory::None)
+            {
+                // An inapplicable PMV is indeterminate, not a definite
+                // category failure. Track only evaluated no-category cells.
+                if (pmvApplicable)
+                {
+                    anyOverallNoCategory = true;
+                }
+            }
+            else
+            {
+                worstOverallCategory = Foam::max
+                (
+                    worstOverallCategory,
+                    static_cast<label>(overallCategory)
+                );
+            }
+
             // Accumulate volume-weighted averages
-            scalar cellVolume = mesh.V()[cellI];
-            volumeWeightedPMV += pmv * cellVolume;
-            volumeWeightedPPD += ppd * cellVolume;
-            volumeWeightedDR += dr * cellVolume;
-            volumeWeightedTOp += tOp * cellVolume;
-            volumeWeightedRadTemp += cellRadTemp * cellVolume;
-            volumeWeightedRH += cellRH * cellVolume;
-            volumeWeightedTu += Tu * cellVolume;
+            const scalar cellVolume = mesh.V()[cellI];
+            volumeWeightedPMV += pmv*cellVolume;
+            volumeWeightedPPD += ppd*cellVolume;
+            volumeWeightedDR += dr*cellVolume;
+            volumeWeightedTOp += tOp*cellVolume;
+            volumeWeightedRadTemp += cellRadTemp*cellVolume;
+            volumeWeightedRH += cellRH*cellVolume;
+            volumeWeightedTu += turbulenceIntensity*cellVolume;
+            volumeWeightedRelativeVelocity += relativeAirVelocity*cellVolume;
+            volumeWeightedResultantClo += resultantClo*cellVolume;
             totalVolume += cellVolume;
         } // End of forAll(cellsToAnalyze, i)
 
@@ -1308,6 +2222,12 @@ int main(int argc, char *argv[])
         PMV.write();
         PPD.write();
         TOp.write();
+        PDVertical.write();
+        PDFloor.write();
+        PDRadiantAsymmetry.write();
+        ISO7730Valid.write();
+        ISO7730WholeBodyCategory.write();
+        ISO7730Category.write();
 
         // Reduce parallel values
         reduce(volumeWeightedPMV, sumOp<scalar>());
@@ -1317,7 +2237,26 @@ int main(int argc, char *argv[])
         reduce(volumeWeightedRadTemp, sumOp<scalar>());
         reduce(volumeWeightedRH, sumOp<scalar>());
         reduce(volumeWeightedTu, sumOp<scalar>());
+        reduce(volumeWeightedRelativeVelocity, sumOp<scalar>());
+        reduce(volumeWeightedResultantClo, sumOp<scalar>());
         reduce(totalVolume, sumOp<scalar>());
+        reduce(invalidPMVCells, sumOp<label>());
+        reduce(invalidDRCells, sumOp<label>());
+        reduce(invalidLocalCells, sumOp<label>());
+        reduce(missingLocalCells, sumOp<label>());
+        reduce(nonConvergedCells, sumOp<label>());
+        reduce(anyWholeBodyNoCategory, orOp<bool>());
+        reduce(anyOverallNoCategory, orOp<bool>());
+        reduce(anyOverallIncomplete, orOp<bool>());
+        reduce(worstWholeBodyCategory, maxOp<label>());
+        reduce(worstOverallCategory, maxOp<label>());
+
+        if (totalVolume <= SMALL)
+        {
+            FatalErrorInFunction
+                << "The selected analysis region has zero volume."
+                << abort(FatalError);
+        }
         
         // Calculate final averages
         scalar avgPMV = volumeWeightedPMV / totalVolume;
@@ -1327,9 +2266,38 @@ int main(int argc, char *argv[])
         scalar avgRadTemp = volumeWeightedRadTemp / totalVolume;
         scalar avgRH = volumeWeightedRH / totalVolume;
         scalar avgTu = volumeWeightedTu / totalVolume;
+        scalar avgRelativeVelocity =
+            volumeWeightedRelativeVelocity/totalVolume;
+        scalar avgResultantClo = volumeWeightedResultantClo/totalVolume;
 
-        // Analyze comfort category
-        ComfortCategory category = analyzeComfortCategory(avgPMV, avgDR, avgPPD);
+        const ComfortCategory worstWholeBody = anyWholeBodyNoCategory
+            ? ComfortCategory::None
+            : static_cast<ComfortCategory>(worstWholeBodyCategory);
+
+        const char* overallCategoryText = "No category";
+        if (anyOverallNoCategory)
+        {
+            overallCategoryText = "No category";
+        }
+        else if (invalidPMVCells > 0)
+        {
+            overallCategoryText =
+                "Not determined (one or more inputs are outside "
+                "ISO 7730 applicability)";
+        }
+        else if (anyOverallIncomplete)
+        {
+            overallCategoryText =
+                "Not determined (local inputs are missing or outside "
+                "applicability)";
+        }
+        else
+        {
+            overallCategoryText = comfortCategoryToString
+            (
+                static_cast<ComfortCategory>(worstOverallCategory)
+            );
+        }
 
         // Output results
         Info<< nl << "============ THERMAL COMFORT ANALYSIS RESULTS ============" << nl;
@@ -1353,10 +2321,16 @@ int main(int argc, char *argv[])
             << "Analysis volume: " << totalVolume << " m^3" << nl
             << nl
             << "Mean radiation temperature:     " << avgRadTemp << " degrees C" << nl
-            << "Average air temperature:        " << avgTemperature - 273.0 << " degrees C" << nl
+            << "Average air temperature:        "
+            << avgTemperature - ComfortConstants::physicalKelvinOffset
+            << " degrees C" << nl
             << "Average air velocity:           " << avgVelocityMag << " m/s" << nl
+            << "Average relative air velocity:  " << avgRelativeVelocity << " m/s" << nl
             << "Average relative humidity:      " << avgRH << " %" << nl
-            << "Average operative temperature:  " << avgTOp - 273.0 << " degrees C" << nl
+            << "Average resultant clothing:     " << avgResultantClo << " clo" << nl
+            << "Average operative temperature:  "
+            << avgTOp - ComfortConstants::physicalKelvinOffset
+            << " degrees C" << nl
             << "Average turbulent intensity:    " << avgTu * 100.0 << " %" << nl
             << nl
             << "COMFORT INDICES:" << nl
@@ -1364,7 +2338,27 @@ int main(int argc, char *argv[])
             << "PPD (Predicted % Dissatisfied): " << avgPPD << " %" << nl
             << "DR (Draught Rating):            " << avgDR << " %" << nl
             << nl
-            << "COMFORT CATEGORY: " << comfortCategoryToString(category) << nl
+            << "ISO 7730:2025 APPLICABILITY:" << nl
+            << "PMV cells outside applicability: " << invalidPMVCells
+            << " / " << totalCells << nl
+            << "DR cells outside applicability:  " << invalidDRCells
+            << " / " << totalCells << nl
+            << "Local input missing in cells:    " << missingLocalCells
+            << " / " << totalCells << nl
+            << "Local input invalid in cells:    " << invalidLocalCells
+            << " / " << totalCells << nl
+            << "Clothing iterations not converged: " << nonConvergedCells
+            << nl
+            << nl
+            << "Worst whole-body category: "
+            <<
+               (
+                   invalidPMVCells > 0
+                 ? "Not determined (PMV outside applicability)"
+                 : comfortCategoryToString(worstWholeBody)
+               )
+            << nl
+            << "Worst overall category:    " << overallCategoryText << nl
             << "=========================================================" << endl;
     
     } // End of forAll(timeDirs, timei)
