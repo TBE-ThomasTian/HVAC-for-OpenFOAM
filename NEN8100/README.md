@@ -37,6 +37,9 @@ wmake -j
 
 The executable is written to `$FOAM_USER_APPBIN/NEN8100Foam`.
 
+A port for OpenCFD OpenFOAM-v2606 with stricter mesh and input checking is kept
+in [OpenFOAM-v2606](OpenFOAM-v2606/README.md).
+
 ## Case arrangement
 
 Run the utility from an OpenFOAM driver case containing
