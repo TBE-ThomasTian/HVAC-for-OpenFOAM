@@ -30,6 +30,7 @@ Advanced HVAC simulation toolkit for OpenFOAM, providing specialized solvers and
 - **ISO7243Foam**: ISO 7243 WBGT heat stress assessment
 - **ISO7933Foam**: ISO 7933 heat strain screening
 - **AoAFoam**: Age of Air calculation for ventilation assessment
+- **NEN8100Foam**: Multi-direction pedestrian wind comfort and danger assessment
 
 #### fvOptions
 - **thermostatSource**: Thermostat-controlled heating source with proportional regulation, sensor placement, and supply temperature limiting (Vorlauf)
@@ -56,6 +57,7 @@ Advanced HVAC simulation toolkit for OpenFOAM, providing specialized solvers and
 - [ASHRAE55Foam](ASHRAE55/README.md) - ASHRAE-55 adaptive comfort model
 - [ISO7243Foam](ISO7243/README.md) - ISO 7243 WBGT post-processing
 - [ISO7933Foam](ISO7933/README.md) - ISO 7933 heat strain screening
+- [NEN8100Foam](NEN8100/README.md) - NEN 8100 pedestrian wind comfort and danger
 
 ### fvOptions
 - [thermostatSource](thermostatSource/README.md) - Thermostat-controlled heating with sensor and Vorlauf limit
