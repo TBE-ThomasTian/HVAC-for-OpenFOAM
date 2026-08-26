@@ -1,0 +1,97 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     |                                                 |
+|   \\  /    A nd           |                                                 |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      NEN8100Dict;
+}
+
+// Mean velocity field sampled in every directional case.
+field                   U;
+fieldPrefix             NEN8100;
+
+// Direction values use the meteorological "wind from" convention [degrees].
+// Case paths are resolved relative to the case in which NEN8100Foam is run.
+// Uref is the undisturbed mean reference speed [m/s] at referenceHeight [m].
+directions
+(
+    { windFrom 0;   case "../wind_000"; Uref 10; referenceHeight 60; }
+    { windFrom 30;  case "../wind_030"; Uref 10; referenceHeight 60; }
+    { windFrom 60;  case "../wind_060"; Uref 10; referenceHeight 60; }
+    { windFrom 90;  case "../wind_090"; Uref 10; referenceHeight 60; }
+    { windFrom 120; case "../wind_120"; Uref 10; referenceHeight 60; }
+    { windFrom 150; case "../wind_150"; Uref 10; referenceHeight 60; }
+    { windFrom 180; case "../wind_180"; Uref 10; referenceHeight 60; }
+    { windFrom 210; case "../wind_210"; Uref 10; referenceHeight 60; }
+    { windFrom 240; case "../wind_240"; Uref 10; referenceHeight 60; }
+    { windFrom 270; case "../wind_270"; Uref 10; referenceHeight 60; }
+    { windFrom 300; case "../wind_300"; Uref 10; referenceHeight 60; }
+    { windFrom 330; case "../wind_330"; Uref 10; referenceHeight 60; }
+);
+
+evaluationSurface
+{
+    type                horizontalPlane;
+
+    // The slice point is groundPoint + pedestrianHeight*verticalDirection.
+    groundPoint         (0 0 0);
+    verticalDirection   (0 0 1);
+    pedestrianHeight    1.75;
+
+    triangulate         true;
+
+    // Optional spatial restriction:
+    // bounds (-50 -50 0) (50 50 5);
+    // zone pedestrianZone;
+}
+
+// Initial climate interface. Frequencies are joint annual fractions and must
+// therefore be in [0,1]. Scale is the Weibull scale speed [m/s], and shape is
+// dimensionless. The sum may be below one when the remainder is calm weather.
+// Remove the entire climate dictionary to write amplification factors only.
+climate
+{
+    type                directionalWeibull;
+    referenceHeight     60;
+    directionTolerance  0.1;
+
+    sectors
+    (
+        { windFrom 0;   frequency 0.070; scale 6.0; shape 2.0; }
+        { windFrom 30;  frequency 0.065; scale 6.0; shape 2.0; }
+        { windFrom 60;  frequency 0.060; scale 6.0; shape 2.0; }
+        { windFrom 90;  frequency 0.060; scale 6.0; shape 2.0; }
+        { windFrom 120; frequency 0.055; scale 6.0; shape 2.0; }
+        { windFrom 150; frequency 0.060; scale 6.0; shape 2.0; }
+        { windFrom 180; frequency 0.075; scale 6.0; shape 2.0; }
+        { windFrom 210; frequency 0.100; scale 6.0; shape 2.0; }
+        { windFrom 240; frequency 0.130; scale 6.0; shape 2.0; }
+        { windFrom 270; frequency 0.110; scale 6.0; shape 2.0; }
+        { windFrom 300; frequency 0.090; scale 6.0; shape 2.0; }
+        { windFrom 330; frequency 0.075; scale 6.0; shape 2.0; }
+    );
+}
+
+// Results are written as volScalarFields into the selected time of the first
+// directional case. Override the destination only when it has the same mesh.
+// outputCase           "../wind_000";
+outputTime              latest;
+// outputRegion         region0;
+
+// Optional full-volume gamma fields for every direction. The NEN result
+// fields and pedestrian mask are written independently of this switch.
+writeAmplification      false;
+geometryTolerance       1e-8;
+
+// A warning is issued when the number differs from expectedDirectionCount.
+expectedDirectionCount  12;
+strictDirectionCount    false;
+
+// ************************************************************************* //

@@ -1,0 +1,5 @@
+/* Adjusted by FlowSIM Pro, 2026. */
+
+NEN8100Foam.C
+
+EXE = $(FOAM_APPBIN)/NEN8100Foam
